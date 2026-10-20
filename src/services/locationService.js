@@ -199,16 +199,26 @@ export function createLocationService(geo = Geolocation) {
       }
     },
 
-    /** Wait (up to timeoutMs) for the first real fix of the current tracking session. */
+    /**
+     * Wait (up to timeoutMs) for the first real fix of the current tracking
+     * session. Gives up immediately when location can't work at all
+     * (permission denied, services off, unsupported) so an SOS alert isn't
+     * held back waiting for a fix that will never come.
+     */
     waitForFix(timeoutMs = 15_000) {
+      const hopeless = () =>
+        snapshot.status === 'error' &&
+        [LocationErrorKind.permissionDenied, LocationErrorKind.servicesDisabled, LocationErrorKind.unsupported]
+          .includes(snapshot.errorKind);
       if (snapshot.location && snapshot.status === 'tracking') return Promise.resolve(snapshot.location);
+      if (hopeless()) return Promise.resolve(snapshot.location);
       return new Promise((resolve) => {
         const timer = setTimeout(() => { unsub(); resolve(snapshot.location); }, timeoutMs);
         const unsub = this.subscribe(() => {
-          if (snapshot.location && snapshot.status === 'tracking') {
+          if ((snapshot.location && snapshot.status === 'tracking') || hopeless()) {
             clearTimeout(timer);
             unsub();
-            resolve(snapshot.location);
+            resolve(snapshot.location); // last real fix, or null
           }
         });
       });

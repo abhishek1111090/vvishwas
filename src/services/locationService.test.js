@@ -92,6 +92,25 @@ describe('locationService', () => {
     expect((await p).latitude).toBe(1);
   });
 
+  it('waitForFix gives up immediately when permission is denied', async () => {
+    const geo = fakeGeo();
+    const svc = createLocationService(geo);
+    await svc.start();
+    const p = svc.waitForFix(60_000);
+    geo.emitError({ code: 1 });
+    expect(await p).toBeNull();
+  });
+
+  it('waitForFix keeps waiting through a timeout error', async () => {
+    const geo = fakeGeo();
+    const svc = createLocationService(geo);
+    await svc.start();
+    const p = svc.waitForFix(5000);
+    geo.emitError({ code: 3 });
+    geo.emitFix(3, 4);
+    expect((await p).latitude).toBe(3);
+  });
+
   it('builds a maps link', () => {
     expect(mapsUrl({ latitude: 1.5, longitude: 2.5 })).toBe('https://www.google.com/maps/search/?api=1&query=1.5,2.5');
     expect(mapsUrl(null)).toBeNull();

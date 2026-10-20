@@ -9,3 +9,4 @@ npm-debug.log*
 !.env.example
 coverage
 .gradle-build.log
+release/
