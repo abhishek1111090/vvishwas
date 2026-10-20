@@ -1,0 +1,60 @@
+/*
+  typography.css
+  --------------
+  CONVERSION NOTE: VFont built every text style on SwiftUI's Dynamic Type
+  text styles (.largeTitle, .headline, etc.) so the OS-level "Larger Text"
+  accessibility setting scaled the whole app automatically. Browsers have
+  an equivalent: the user's base font-size preference. Using `rem` units
+  throughout (never fixed `px` for text) means zooming or changing the
+  browser's default font size scales every one of these the same way
+  Dynamic Type would.
+*/
+
+.v-font-display {
+  font-family: var(--font-rounded);
+  font-size: 2.25rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.v-font-title {
+  font-family: var(--font-rounded);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.v-font-headline {
+  font-family: var(--font-default);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.v-font-body {
+  font-family: var(--font-default);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.v-font-subheadline {
+  font-family: var(--font-default);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.v-font-caption {
+  font-family: var(--font-default);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.v-font-sos-label {
+  font-family: var(--font-rounded);
+  font-size: 1.375rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}

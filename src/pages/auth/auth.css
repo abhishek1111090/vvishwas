@@ -1,0 +1,127 @@
+.v-welcome {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 100vh;
+  justify-content: space-between;
+  padding: var(--space-xxl) var(--space-lg) var(--space-lg);
+}
+
+.v-welcome__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  text-align: center;
+  margin-top: var(--space-xxl);
+}
+
+.v-welcome__brand h1 {
+  margin: 0;
+}
+
+.v-welcome__brand p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.v-welcome__error {
+  color: var(--color-emergency);
+  text-align: center;
+  margin: var(--space-md) 0 0;
+}
+
+.v-welcome__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.v-welcome__existing-account {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  padding: var(--space-xs) 0 0;
+}
+
+/* Apple Sign In placeholder button — styled to resemble Apple's official
+   "Sign in with Apple" button (black, rounded, centered label) per their
+   HIG, but this is NOT Apple's real rendered button. A production build
+   should render Apple's actual "Sign in with Apple JS" button instead. */
+.v-apple-signin-btn {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #000000;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-medium);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.v-apple-signin-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.v-apple-signin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Shared sheet-form layout — SignUpSheet / SignInSheet / ForgotPasswordSheet */
+
+.v-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding-bottom: var(--space-md);
+}
+
+.v-auth-hint,
+.v-auth-error {
+  margin: 0;
+}
+
+.v-auth-hint {
+  color: var(--color-text-secondary);
+  margin-top: -8px;
+}
+
+.v-auth-error {
+  color: var(--color-emergency);
+}
+
+.v-auth-forgot-link {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  padding: 0;
+}
+
+.v-forgot-password__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.v-forgot-password__intro h2,
+.v-forgot-password__success h2 {
+  margin: 0;
+}
+
+.v-forgot-password__intro p,
+.v-forgot-password__success p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.v-forgot-password__success {
+  align-items: center;
+  text-align: center;
+}

@@ -1,0 +1,98 @@
+.v-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--color-background);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Status Bar: subtle native header */
+.v-shell__status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(8px, var(--safe-area-top)) var(--space-md) 6px;
+  background: var(--color-background);
+  color: var(--color-text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  z-index: 40;
+  user-select: none;
+  -webkit-user-select: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+.v-shell__clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  letter-spacing: -0.02em;
+}
+
+.v-shell__notch-pill {
+  width: 72px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-pill);
+}
+
+@media (prefers-color-scheme: dark) {
+  .v-shell__notch-pill {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.v-shell__status-icons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6875rem;
+  color: var(--color-text-primary);
+}
+
+.v-shell__signal {
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+
+.v-shell__battery-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.v-shell__battery-text {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollable Main Viewport */
+.v-shell__viewport {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  position: relative;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.v-shell__viewport::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* On mobile screens, status bar padding matches notch */
+@media (max-width: 500px) {
+  .v-shell__status-bar {
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .v-shell__notch-pill {
+    display: none; /* Native phone notch already present */
+  }
+}

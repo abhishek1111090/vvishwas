@@ -1,0 +1,25 @@
+.v-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--space-md);
+}
+
+.v-sheet-header h2 {
+  margin: 0;
+}
+
+.v-sheet-header__close {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.9375rem;
+  padding: 4px;
+}
+
+.v-sheet-header__spacer {
+  width: 56px;
+}

@@ -1,0 +1,26 @@
+.v-coming-soon {
+  text-align: center;
+  padding: var(--space-md) 0 var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.v-coming-soon__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Fallback for Safari < 16.4 */
+  background: rgba(88, 86, 214, 0.14);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  margin-bottom: var(--space-sm);
+}
+
+.v-coming-soon h2  { margin: 0; }
+.v-coming-soon__copy { color: var(--color-text-secondary); margin: 0 0 var(--space-md); }
+.v-coming-soon > .v-btn { max-width: 220px; }

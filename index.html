@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!--
+      viewport: width=device-width, initial-scale=1 is required.
+      viewport-fit=cover extends content into iPhone notch/island area;
+      we handle safe areas with env(safe-area-inset-*) in CSS.
+      user-scalable=no prevents accidental zoom during an emergency.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+
+    <!-- PWA / home-screen appearance -->
+    <meta name="theme-color" content="#5856d6" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="VISHWAS" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Prevent iOS Safari from linkifying phone numbers and addresses in UI text -->
+    <meta name="format-detection" content="telephone=no, address=no, email=no" />
+
+    <!-- SEO / sharing -->
+    <meta
+      name="description"
+      content="VISHWAS — women's safety and emergency response. Alert trusted contacts instantly."
+    />
+
+    <!-- PWA manifest (Chrome, Edge, Android) -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Apple touch icon (shown when added to iOS home screen) -->
+    <!-- Replace with real 180×180 PNG before App Store / public launch -->
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <title>VISHWAS — Safety, One Tap Away</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

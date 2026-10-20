@@ -1,0 +1,5 @@
+.v-card {
+  background: var(--color-background-secondary);
+  border-radius: var(--radius-large);
+  box-shadow: 0 6px 14px var(--shadow-color);
+}

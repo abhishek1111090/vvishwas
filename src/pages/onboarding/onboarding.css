@@ -1,0 +1,484 @@
+/* ==========================================================================
+   VISHWAS Mobile Onboarding Experience
+   ========================================================================== */
+
+.v-onboarding {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--color-background);
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --- Top Bar & Navigation --- */
+
+.v-onboarding__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(var(--space-md), var(--safe-area-top)) var(--space-lg) var(--space-xs);
+  min-height: 52px;
+  background: var(--color-background);
+  z-index: 20;
+}
+
+.v-onboarding__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.v-onboarding__logo-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-small);
+  background: rgba(88, 86, 214, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.v-onboarding__brand-name {
+  font-family: var(--font-rounded);
+  font-size: 0.9375rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--color-text-primary);
+}
+
+.v-onboarding__step-pill {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  background: var(--color-background-secondary);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.v-onboarding__skip-btn,
+.v-onboarding__back-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s ease;
+}
+
+.v-onboarding__skip-btn:active,
+.v-onboarding__back-btn:active {
+  color: var(--color-text-primary);
+}
+
+/* --- Segmented Progress Bar --- */
+
+.v-onboarding__progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-xs) var(--space-lg) var(--space-sm);
+}
+
+.v-onboarding__progress-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-separator);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.3s ease, height 0.2s ease;
+  min-height: 4px;
+}
+
+.v-onboarding__progress-bar--completed {
+  background: var(--color-accent);
+  opacity: 0.6;
+}
+
+.v-onboarding__progress-bar--active {
+  background: var(--color-accent);
+  height: 5px;
+  opacity: 1;
+}
+
+/* --- Swipeable Viewport --- */
+
+.v-onboarding__viewport {
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  touch-action: pan-y;
+}
+
+.v-onboarding__track {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.v-onboarding__track--dragging {
+  transition: none !important;
+}
+
+.v-onboarding__slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.v-onboarding__slide::-webkit-scrollbar {
+  display: none;
+}
+
+/* --- Slide Content (Static Pages) --- */
+
+.v-onboarding-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  flex: 1;
+  padding: var(--space-lg) var(--space-xl);
+  gap: var(--space-xl);
+}
+
+.v-onboarding-page__illustration {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 190px;
+  height: 190px;
+}
+
+.v-onboarding-page__halo {
+  position: absolute;
+  inset: -15px;
+  border-radius: 50%;
+  filter: blur(12px);
+  animation: v-halo-pulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes v-halo-pulse {
+  from { transform: scale(0.95); opacity: 0.6; }
+  to   { transform: scale(1.08); opacity: 1; }
+}
+
+.v-onboarding-page__icon-wrap {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  z-index: 2;
+}
+
+.v-onboarding-page__copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 340px;
+}
+
+.v-onboarding-page__title {
+  margin: 0;
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.v-onboarding-page__desc {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  font-size: 0.9375rem;
+}
+
+/* --- Footer Controls --- */
+
+.v-onboarding__footer {
+  padding: var(--space-md) var(--space-lg);
+  padding-bottom: max(var(--space-md), var(--safe-area-bottom));
+  background: var(--color-background);
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.v-onboarding__nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.v-onboarding__spacer {
+  width: 60px;
+}
+
+.v-onboarding__prev-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 12px 16px;
+  min-height: 48px;
+  cursor: pointer;
+}
+
+.v-onboarding__action-btn {
+  flex: 1;
+  max-width: 220px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
+   Permissions Setup Screen (Final Slide)
+   ========================================================================== */
+
+.v-onboarding__slide--permissions {
+  padding-bottom: max(var(--space-md), var(--safe-area-bottom));
+}
+
+.v-permissions-setup {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: var(--space-sm) var(--space-lg) max(var(--space-xl), var(--safe-area-bottom));
+  gap: var(--space-md);
+}
+
+.v-permissions-setup__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.v-permissions-setup__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.v-permissions-setup__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.v-permissions-setup__refresh-btn {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border-radius: 50%;
+  background: var(--color-background-secondary);
+  border: none;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.v-permissions-setup__refresh-btn:active {
+  transform: rotate(180deg);
+  transition: transform 0.3s ease;
+}
+
+.v-permissions-setup__subtitle {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.v-permissions-setup__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+}
+
+/* Permission Item inside Card */
+
+.v-perm-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 2px 0;
+}
+
+.v-perm-item__main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.v-perm-item__icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-small);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.v-perm-item__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.v-perm-item__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.v-perm-item__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.v-perm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+}
+
+.v-perm-tag--granted {
+  background: rgba(52, 199, 89, 0.15);
+  color: var(--color-safe);
+}
+
+.v-perm-tag--denied {
+  background: rgba(255, 59, 48, 0.15);
+  color: #ff3b30;
+}
+
+.v-perm-tag--pending {
+  background: rgba(88, 86, 214, 0.15);
+  color: var(--color-accent);
+}
+
+.v-perm-item__purpose {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.v-perm-item__denied-help {
+  margin: 2px 0 0;
+  color: var(--color-warning);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  font-weight: 500;
+}
+
+.v-perm-item__action-col {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.v-perm-btn {
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-height: 34px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s ease;
+}
+
+.v-perm-btn:active {
+  transform: scale(0.94);
+}
+
+.v-perm-btn--allow {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.v-perm-btn--retry {
+  background: rgba(255, 149, 0, 0.16);
+  color: var(--color-warning);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+
+.v-perm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.v-perm-spinner {
+  animation: v-perm-spin 0.9s linear infinite;
+}
+
+@keyframes v-perm-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.v-permissions-setup__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-top: auto;
+  padding-top: var(--space-sm);
+}
+
+.v-permissions-setup__note {
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}

@@ -1,0 +1,54 @@
+.v-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay-scrim);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  animation: v-sheet-fade-in 0.2s ease;
+}
+
+.v-sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--color-background);
+  border-radius: var(--radius-large) var(--radius-large) 0 0;
+  padding: 0 var(--space-lg) var(--space-lg);
+  animation: v-sheet-slide-up 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.v-sheet__grabber {
+  width: 36px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-separator);
+  margin: 10px auto 16px;
+}
+
+@keyframes v-sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes v-sheet-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-sheet,
+  .v-sheet-backdrop {
+    animation: none;
+  }
+}
