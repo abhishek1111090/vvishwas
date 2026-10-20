@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VISHWAS</string>
+    <string name="title_activity_main">VISHWAS</string>
+    <string name="package_name">com.vishwas.safety</string>
+    <string name="custom_url_scheme">com.vishwas.safety</string>
+</resources>

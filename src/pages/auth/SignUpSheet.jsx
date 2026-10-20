@@ -51,7 +51,7 @@ export function SignUpSheet({ isOpen, onClose }) {
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <SheetHeader title="Create Account" onClose={onClose} />
-      <form className="v-auth-form" onSubmit={handleSubmit}>
+      <form className="v-auth-form" onSubmit={handleSubmit} noValidate>
         <LabeledField label="Full Name" value={fullName} onChange={setFullName} autoComplete="name" />
         <LabeledField label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
         <LabeledField

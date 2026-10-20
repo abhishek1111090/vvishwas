@@ -8,6 +8,8 @@ import { WelcomePage } from '../pages/auth/WelcomePage';
 import { HomePage } from '../pages/home/HomePage';
 import { ContactsListPage } from '../pages/contacts/ContactsListPage';
 import { ProfilePage } from '../pages/profile/ProfilePage';
+import { HistoryPage } from '../pages/history/HistoryPage';
+import { useAndroidBackButton } from '../platform/useAndroidBackButton';
 
 function RootRedirect() {
   const { hasCompletedOnboarding } = useAppState();
@@ -19,6 +21,8 @@ function RootRedirect() {
 }
 
 export function RootRouter() {
+  useAndroidBackButton();
+
   return (
     <Routes>
       <Route path="/" element={<RootRedirect />} />
@@ -52,6 +56,17 @@ export function RootRouter() {
           <ProtectedRoute>
             <AppShell>
               <ProfilePage />
+            </AppShell>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/history"
+        element={
+          <ProtectedRoute>
+            <AppShell>
+              <HistoryPage />
             </AppShell>
           </ProtectedRoute>
         }

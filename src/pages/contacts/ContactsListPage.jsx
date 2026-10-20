@@ -19,7 +19,7 @@ import './contacts.css';
 // route here (`/contacts`) rather than a pushed NavigationLink destination.
 
 export function ContactsListPage() {
-  const { contacts, removeContact, toggleFavorite, addContact } = useContacts();
+  const { contacts, removeContact, toggleFavorite, addContact, error, clearError } = useContacts();
   const navigate = useNavigate();
 
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -31,7 +31,13 @@ export function ContactsListPage() {
   const nonFavorites = contacts.filter((c) => !c.isFavorite);
 
   function handleImport({ name, phoneNumber }) {
-    addContact({ name, phoneNumber, relationship: '' });
+    return addContact({ name, phoneNumber, relationship: '' });
+  }
+
+  function handleDelete(id) {
+    const contact = contacts.find((c) => c.id === id);
+    const ok = window.confirm(`Remove ${contact?.name ?? 'this contact'} from your emergency contacts?`);
+    if (ok) removeContact(id);
   }
 
   return (
@@ -77,6 +83,13 @@ export function ContactsListPage() {
         </div>
       </header>
 
+      {error && (
+        <div className="v-contacts-error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={clearError} aria-label="Dismiss error">✕</button>
+        </div>
+      )}
+
       {contacts.length === 0 ? (
         <div className="v-contacts-empty">
           <UsersRound size={44} color="var(--color-text-secondary)" aria-hidden="true" />
@@ -97,7 +110,7 @@ export function ContactsListPage() {
                   contact={contact}
                   onEdit={setContactToEdit}
                   onToggleFavorite={toggleFavorite}
-                  onDelete={removeContact}
+                  onDelete={handleDelete}
                 />
               ))}
             </section>
@@ -111,7 +124,7 @@ export function ContactsListPage() {
                 contact={contact}
                 onEdit={setContactToEdit}
                 onToggleFavorite={toggleFavorite}
-                onDelete={removeContact}
+                onDelete={handleDelete}
               />
             ))}
           </section>

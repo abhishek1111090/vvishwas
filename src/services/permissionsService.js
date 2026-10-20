@@ -1,34 +1,46 @@
+import { Geolocation } from '@capacitor/geolocation';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { isNative, isAndroid } from '../platform/platform';
+import { VishwasNative } from '../platform/vishwasNative';
+
 /**
- * permissionsService.js — Safari-compatible permission checking and requesting
+ * permissionsService.js — permission checking and requesting
  *
- * THE CORE SAFARI PROBLEM:
- *   navigator.permissions.query({name:'camera'})  → throws NotSupportedError on all iOS Safari
- *   navigator.permissions.query({name:'microphone'}) → throws on all iOS Safari
- *   navigator.permissions.query({name:'notifications'}) → throws on some iOS Safari versions
- *   Only 'geolocation' works reliably across browsers.
+ * NATIVE APP (Capacitor):
+ *   • Location       → @capacitor/geolocation check/requestPermissions
+ *   • Notifications  → @capacitor/local-notifications (POST_NOTIFICATIONS on Android 13+)
+ *   • Camera / Mic   → app-local VishwasNative plugin (AVCaptureDevice on iOS,
+ *                      CAMERA / RECORD_AUDIO runtime permissions on Android)
+ *   • SMS (Android)  → VishwasNative (SEND_SMS) for automatic alert texts
+ *   Checking never prompts. Requests show the real OS dialog. After a
+ *   permanent denial the OS won't show the dialog again, so the UI offers
+ *   openAppSettings() instead.
  *
- * SOLUTION:
- *   Camera / Microphone:
- *     • There is NO way to silently check these on Safari without asking the user.
- *     • We cache the result in sessionStorage after each request so subsequent
- *       checks within the same session return the cached result immediately.
- *     • On page reload, we attempt a silent probe using a 0-second getUserMedia
- *       call — if it rejects with NotAllowedError, permission is denied; if it
- *       resolves, permission is granted (stream is stopped immediately).
- *
- *   Geolocation:
- *     • Use Permissions API where supported, probe via getCurrentPosition elsewhere.
- *
- *   Notifications:
- *     • Read Notification.permission directly (works cross-browser).
+ * BROWSER (development / optional PWA):
+ *   • Permissions API where it exists. Where it doesn't (iOS Safari for
+ *     camera/mic), we report notDetermined instead of probing with
+ *     getUserMedia — probing used to pop up a permission prompt on page
+ *     load, which is exactly when we should NOT ask.
  */
 
 export const PermissionStatus = {
-  notDetermined: 'notDetermined',  // never asked — show "Allow" button
+  notDetermined: 'notDetermined',  // never asked (or can ask again) — show "Allow"
   granted: 'granted',
-  denied: 'denied',
-  requesting: 'requesting',        // async check / request in progress
+  denied: 'denied',                // denied — on native, must go to Settings
+  requesting: 'requesting',        // request in progress
+  unavailable: 'unavailable',      // not supported on this platform / no hardware
 };
+
+/** Capacitor PermissionState → PermissionStatus */
+export function fromCapacitorState(state) {
+  switch (state) {
+    case 'granted': return PermissionStatus.granted;
+    case 'denied': return PermissionStatus.denied;
+    case 'prompt':
+    case 'prompt-with-rationale': return PermissionStatus.notDetermined;
+    default: return PermissionStatus.unavailable;
+  }
+}
 
 const SESSION_KEY_CAMERA = 'vishwas.perm.camera';
 const SESSION_KEY_MIC    = 'vishwas.perm.microphone';
@@ -37,7 +49,7 @@ function readCache(key) {
   try { return sessionStorage.getItem(key); } catch { return null; }
 }
 function writeCache(key, value) {
-  try { sessionStorage.setItem(key, value); } catch { /* ignore */ }
+  try { sessionStorage.setItem(key, value); } catch { /* storage unavailable — cache is optional */ }
 }
 
 /** Try the Permissions API; return null if unsupported or throws. */
@@ -53,134 +65,144 @@ async function tryPermissionsQuery(name) {
   }
 }
 
-/**
- * Silently probe camera or microphone by briefly calling getUserMedia.
- * Stops the stream immediately — user never sees a live feed.
- */
-async function probeMediaPermission(kind) {
-  if (!navigator.mediaDevices?.getUserMedia) return PermissionStatus.notDetermined;
-  const constraints = kind === 'camera'
-    ? { video: { width: 1, height: 1 }, audio: false }
-    : { audio: true, video: false };
+function mediaErrorToStatus(err) {
+  if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || err?.name === 'SecurityError') {
+    return PermissionStatus.denied;
+  }
+  if (err?.name === 'NotFoundError' || err?.name === 'OverconstrainedError') return PermissionStatus.unavailable;
+  return PermissionStatus.notDetermined;
+}
+
+async function webRequestMedia(kind) {
+  const key = kind === 'camera' ? SESSION_KEY_CAMERA : SESSION_KEY_MIC;
+  if (!navigator.mediaDevices?.getUserMedia) return PermissionStatus.unavailable;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const stream = await navigator.mediaDevices.getUserMedia(
+      kind === 'camera' ? { video: { facingMode: { ideal: 'environment' } }, audio: false } : { audio: true, video: false }
+    );
     stream.getTracks().forEach((t) => t.stop());
+    writeCache(key, PermissionStatus.granted);
     return PermissionStatus.granted;
   } catch (err) {
-    if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-      return PermissionStatus.denied;
-    }
-    // NotFoundError (no camera) or other — treat as not determined
-    return PermissionStatus.notDetermined;
+    const status = mediaErrorToStatus(err);
+    writeCache(key, status);
+    return status;
+  }
+}
+
+async function webCheckMedia(kind) {
+  const key = kind === 'camera' ? SESSION_KEY_CAMERA : SESSION_KEY_MIC;
+  if (!navigator.mediaDevices?.getUserMedia) return PermissionStatus.unavailable;
+  const fromApi = await tryPermissionsQuery(kind === 'camera' ? 'camera' : 'microphone');
+  if (fromApi) return fromApi;
+  return readCache(key) ?? PermissionStatus.notDetermined;
+}
+
+async function nativeMedia(method, kind) {
+  try {
+    const result = await VishwasNative[method]({ permissions: [kind] });
+    return fromCapacitorState(result?.[kind]);
+  } catch {
+    return PermissionStatus.unavailable;
   }
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export const permissionsService = {
+  // ─── Checks (never prompt) ────────────────────────────────────────────────
+
+  async checkLocation() {
+    try {
+      const result = await Geolocation.checkPermissions();
+      return fromCapacitorState(result.location);
+    } catch (err) {
+      // Web: thrown when the Permissions API or geolocation is missing.
+      if (!isNative() && navigator.geolocation) return PermissionStatus.notDetermined;
+      return String(err?.message ?? '').toLowerCase().includes('disabled')
+        ? PermissionStatus.denied
+        : PermissionStatus.unavailable;
+    }
+  },
 
   async checkCamera() {
-    const cached = readCache(SESSION_KEY_CAMERA);
-    if (cached) return cached;
-
-    // Try standard Permissions API (works in Chrome/Firefox)
-    const fromApi = await tryPermissionsQuery('camera');
-    if (fromApi) { writeCache(SESSION_KEY_CAMERA, fromApi); return fromApi; }
-
-    // Safari fallback: silent probe
-    // NOTE: this may show a permission prompt on some iOS versions if never asked.
-    // We only call this on initial status check — if it prompts, it prompts once.
-    const probed = await probeMediaPermission('camera');
-    writeCache(SESSION_KEY_CAMERA, probed);
-    return probed;
+    return isNative() ? nativeMedia('checkMediaPermissions', 'camera') : webCheckMedia('camera');
   },
 
   async checkMicrophone() {
-    const cached = readCache(SESSION_KEY_MIC);
-    if (cached) return cached;
-
-    const fromApi = await tryPermissionsQuery('microphone');
-    if (fromApi) { writeCache(SESSION_KEY_MIC, fromApi); return fromApi; }
-
-    const probed = await probeMediaPermission('microphone');
-    writeCache(SESSION_KEY_MIC, probed);
-    return probed;
-  },
-
-  async checkLocation() {
-    const fromApi = await tryPermissionsQuery('geolocation');
-    if (fromApi) return fromApi;
-
-    // Fallback: if geolocation exists assume notDetermined (can't probe without prompting)
-    return navigator.geolocation ? PermissionStatus.notDetermined : PermissionStatus.denied;
+    return isNative() ? nativeMedia('checkMediaPermissions', 'microphone') : webCheckMedia('microphone');
   },
 
   async checkNotifications() {
-    if (typeof Notification === 'undefined') return PermissionStatus.denied;
+    if (isNative()) {
+      try {
+        return fromCapacitorState((await LocalNotifications.checkPermissions()).display);
+      } catch {
+        return PermissionStatus.unavailable;
+      }
+    }
+    if (typeof Notification === 'undefined') return PermissionStatus.unavailable;
     const p = Notification.permission;
     if (p === 'granted') return PermissionStatus.granted;
     if (p === 'denied')  return PermissionStatus.denied;
     return PermissionStatus.notDetermined;
   },
 
-  // ─── Request methods (must be called from a user-gesture handler) ─────────
-
-  /**
-   * Request camera permission via getUserMedia. Shows the browser's permission
-   * prompt on first call; on subsequent calls returns the cached result immediately.
-   */
-  async requestCamera() {
+  /** Automatic SMS alerts exist only in the Android app. */
+  async checkSms() {
+    if (!isAndroid()) return PermissionStatus.unavailable;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
-      stream.getTracks().forEach((t) => t.stop());
-      writeCache(SESSION_KEY_CAMERA, PermissionStatus.granted);
-      return PermissionStatus.granted;
-    } catch (err) {
-      const status = (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError')
-        ? PermissionStatus.denied
-        : PermissionStatus.notDetermined;
-      writeCache(SESSION_KEY_CAMERA, status);
-      return status;
+      return fromCapacitorState((await VishwasNative.checkSmsPermission()).sms);
+    } catch {
+      return PermissionStatus.unavailable;
     }
   },
 
-  async requestMicrophone() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      stream.getTracks().forEach((t) => t.stop());
-      writeCache(SESSION_KEY_MIC, PermissionStatus.granted);
-      return PermissionStatus.granted;
-    } catch (err) {
-      const status = (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError')
-        ? PermissionStatus.denied
-        : PermissionStatus.notDetermined;
-      writeCache(SESSION_KEY_MIC, status);
-      return status;
-    }
-  },
+  // ─── Requests (call from a user action) ───────────────────────────────────
 
-  requestLocation() {
+  async requestLocation() {
+    if (isNative()) {
+      try {
+        const result = await Geolocation.requestPermissions({ permissions: ['location'] });
+        return fromCapacitorState(result.location);
+      } catch (err) {
+        // Thrown on Android when Location services are switched off entirely.
+        return String(err?.message ?? '').toLowerCase().includes('disabled')
+          ? PermissionStatus.denied
+          : PermissionStatus.unavailable;
+      }
+    }
+    // Browser: the only way to trigger the prompt is to ask for a position.
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        resolve(PermissionStatus.denied);
+        resolve(PermissionStatus.unavailable);
         return;
       }
       navigator.geolocation.getCurrentPosition(
         () => resolve(PermissionStatus.granted),
-        (err) => {
-          if (err.code === err.PERMISSION_DENIED) resolve(PermissionStatus.denied);
-          else resolve(PermissionStatus.notDetermined);
-        },
+        (err) => resolve(err.code === err.PERMISSION_DENIED ? PermissionStatus.denied : PermissionStatus.granted),
         { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 }
       );
     });
   },
 
+  async requestCamera() {
+    return isNative() ? nativeMedia('requestMediaPermissions', 'camera') : webRequestMedia('camera');
+  },
+
+  async requestMicrophone() {
+    return isNative() ? nativeMedia('requestMediaPermissions', 'microphone') : webRequestMedia('microphone');
+  },
+
   async requestNotifications() {
-    if (typeof Notification === 'undefined') return PermissionStatus.denied;
+    if (isNative()) {
+      try {
+        return fromCapacitorState((await LocalNotifications.requestPermissions()).display);
+      } catch {
+        return PermissionStatus.unavailable;
+      }
+    }
+    if (typeof Notification === 'undefined') return PermissionStatus.unavailable;
     try {
       const result = await Notification.requestPermission();
       if (result === 'granted') return PermissionStatus.granted;
@@ -189,5 +211,23 @@ export const permissionsService = {
     } catch {
       return PermissionStatus.notDetermined;
     }
+  },
+
+  async requestSms() {
+    if (!isAndroid()) return PermissionStatus.unavailable;
+    try {
+      return fromCapacitorState((await VishwasNative.requestSmsPermission()).sms);
+    } catch {
+      return PermissionStatus.unavailable;
+    }
+  },
+
+  /** True when the app can send the user to its own page in system Settings. */
+  canOpenSettings() {
+    return isNative();
+  },
+
+  async openAppSettings() {
+    await VishwasNative.openAppSettings();
   },
 };

@@ -1,8 +1,10 @@
 import {
   ShieldCheck, AlertTriangle, PhoneCall,
   MapPin, Video, Mic, Users, BatteryCharging,
-  BatteryMedium, LogOut, Info, Lock
+  BatteryMedium, LogOut, Info, Lock, History, ChevronRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { PermissionsList } from '../onboarding/PermissionsList';
 import { useAuth } from '../../context/AuthContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useContacts } from '../../context/ContactsContext';
@@ -14,7 +16,8 @@ import { VFont } from '../../design-system/theme';
 import './profile.css';
 
 export function ProfilePage() {
-  const { currentUser, signOut } = useAuth();
+  const { currentUser, signOut, isLocalOnly } = useAuth();
+  const navigate = useNavigate();
   const permissions = usePermissions();
   const { contacts } = useContacts();
   const battery = useBattery();
@@ -93,7 +96,7 @@ export function ProfilePage() {
                 <div className="v-profile-status-text">
                   <span className={VFont.headline}>Live GPS Location</span>
                   <span className={VFont.caption}>
-                    {isLocationReady ? 'Active & accurate tracking' : 'Disabled — enable in browser settings'}
+                    {isLocationReady ? 'Permission granted — used during emergencies' : 'Not allowed — see Permissions below'}
                   </span>
                 </div>
                 <span className={`v-profile-pill ${isLocationReady ? 'v-profile-pill--ok' : 'v-profile-pill--warn'}`}>
@@ -108,7 +111,7 @@ export function ProfilePage() {
                 <div className="v-profile-status-text">
                   <span className={VFont.headline}>Evidence Camera</span>
                   <span className={VFont.caption}>
-                    {isCameraReady ? 'Camera permission granted' : 'Will request on SOS activation'}
+                    {isCameraReady ? 'Camera permission granted' : 'Not allowed yet — see Permissions below'}
                   </span>
                 </div>
                 <span className={`v-profile-pill ${isCameraReady ? 'v-profile-pill--ok' : 'v-profile-pill--neutral'}`}>
@@ -123,7 +126,7 @@ export function ProfilePage() {
                 <div className="v-profile-status-text">
                   <span className={VFont.headline}>Evidence Audio</span>
                   <span className={VFont.caption}>
-                    {isMicReady ? 'Microphone permission granted' : 'Will record when SOS triggers'}
+                    {isMicReady ? 'Microphone permission granted' : 'Not allowed yet — see Permissions below'}
                   </span>
                 </div>
                 <span className={`v-profile-pill ${isMicReady ? 'v-profile-pill--ok' : 'v-profile-pill--neutral'}`}>
@@ -161,16 +164,29 @@ export function ProfilePage() {
                   <span className={VFont.caption}>
                     {battery.level !== null
                       ? `${Math.round(battery.level * 100)}% · ${battery.charging ? 'Charging' : 'On Battery'}`
-                      : 'Battery API not supported'}
+                      : 'Battery level not available on this device'}
                   </span>
                 </div>
                 <span className="v-profile-pill v-profile-pill--neutral">
-                  {battery.level !== null ? `${Math.round(battery.level * 100)}%` : 'OK'}
+                  {battery.level !== null ? `${Math.round(battery.level * 100)}%` : '—'}
                 </span>
               </div>
             </div>
           </Card>
         </section>
+
+        {/* Permissions — grant or fix anytime */}
+        <section className="v-profile-section">
+          <h3 className="v-profile-section__title">PERMISSIONS</h3>
+          <PermissionsList />
+        </section>
+
+        {/* Emergency history */}
+        <button type="button" className="v-profile-history-link" onClick={() => navigate('/history')}>
+          <History size={18} color="var(--color-accent)" aria-hidden="true" />
+          <span className={VFont.headline}>Emergency History</span>
+          <ChevronRight size={18} color="var(--color-text-secondary)" aria-hidden="true" />
+        </button>
 
         {/* Emergency Helpline Quick-Dials */}
         <section className="v-profile-section">
@@ -227,7 +243,7 @@ export function ProfilePage() {
         <div className="v-profile-footer">
           <div className="v-profile-version">
             <Lock size={12} />
-            <span>VISHWAS Safety Engine v1.0.0 · Local Secure Storage</span>
+            <span>VISHWAS v1.0.0 · {isLocalOnly ? 'Account stored on this device only' : 'Cloud account'}</span>
           </div>
         </div>
       </div>

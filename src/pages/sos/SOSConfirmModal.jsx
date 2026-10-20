@@ -27,11 +27,11 @@ export function SOSConfirmModal({ isOpen, onClose, contactCount, onConfirm }) {
         <div className="v-sos-confirm__copy">
           <h2 className={VFont.title}>Trigger Emergency?</h2>
           <p className={VFont.subheadline}>
-            This will start audio + video recording, share your live location, and alert{' '}
+            This starts audio + video recording and live location, and alerts{' '}
             {contactCount > 0
               ? `${contactCount} emergency contact${contactCount === 1 ? '' : 's'}`
-              : 'your emergency contacts'}{' '}
-            immediately.
+              : 'your emergency contacts (none saved yet)'}
+            . The emergency screen shows exactly which alerts were sent.
           </p>
         </div>
 

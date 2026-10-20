@@ -22,3 +22,8 @@
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+.v-field__error {
+  font-size: 0.75rem;
+  color: var(--color-emergency);
+}

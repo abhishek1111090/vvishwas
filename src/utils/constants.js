@@ -11,7 +11,11 @@ export const STORAGE_KEYS = {
   passwordPrefix: 'vishwas.pw.', // password hash storage: `${passwordPrefix}${userId}`
   sessionUserId: 'vishwas.session.user_id',
   contacts: 'vishwas.contacts.v1',
+  emergencyActive: 'vishwas.emergency.active.v1',   // in-progress session (survives app restarts)
+  emergencyHistory: 'vishwas.emergency.history.v1', // ended sessions, newest first
 };
+
+export const EMERGENCY_HISTORY_LIMIT = 50;
 
 export const PRIORITY = {
   primary: 0,

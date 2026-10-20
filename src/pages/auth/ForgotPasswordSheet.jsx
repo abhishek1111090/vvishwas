@@ -16,7 +16,7 @@ import { isValidEmail } from '../../utils/validation';
 // state here since nothing else in the app needs to read it.
 
 export function ForgotPasswordSheet({ isOpen, onClose }) {
-  const { sendPasswordReset, isLoading, errorMessage, clearError } = useAuth();
+  const { sendPasswordReset, isLoading, errorMessage, clearError, canResetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [localError, setLocalError] = useState(null);
   const [resetEmailSent, setResetEmailSent] = useState(false);
@@ -61,11 +61,18 @@ export function ForgotPasswordSheet({ isOpen, onClose }) {
           <PrimaryButton onClick={handleClose}>Done</PrimaryButton>
         </div>
       ) : (
-        <form className="v-auth-form" onSubmit={handleSubmit}>
+        <form className="v-auth-form" onSubmit={handleSubmit} noValidate>
           <div className="v-forgot-password__intro">
             <h2 className={VFont.title}>Reset Password</h2>
             <p className={VFont.subheadline}>Enter the email associated with your account.</p>
           </div>
+
+          {!canResetPassword && (
+            <p className={['v-auth-hint', VFont.caption].join(' ')}>
+              Email password reset needs the VISHWAS server, which isn't set up in this build.
+              Accounts are stored only on this device.
+            </p>
+          )}
 
           <LabeledField label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
 

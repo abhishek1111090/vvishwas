@@ -7,6 +7,7 @@ import { VFont } from '../../design-system/theme';
 import { SignUpSheet } from './SignUpSheet';
 import { SignInSheet } from './SignInSheet';
 import { haptics } from '../../services/hapticService';
+import { isIOS } from '../../platform/platform';
 import './auth.css';
 
 // WelcomePage.jsx
@@ -17,13 +18,13 @@ import './auth.css';
 // same pattern as the original, just without NavigationStack wrapping each
 // sheet in its own nav bar (we use <SheetHeader> for that instead).
 //
-// The "Sign In with Apple" button here is explicitly a UI placeholder —
-// see authService.js's `signInWithApplePlaceholder` for why a real
-// implementation needs Apple's own "Sign in with Apple JS" SDK and a
-// registered Services ID, neither of which exist in this generated project.
+// "Sign in with Apple" is only shown in the iOS app. It is NOT wired to
+// Apple yet (needs an Apple Developer team + the capability + a native
+// plugin), so authService.signInWithApple() reports that honestly instead
+// of creating an unauthenticated placeholder session as it used to.
 
 export function WelcomePage() {
-  const { signInWithApple, errorMessage, isLoading } = useAuth();
+  const { signInWithApple, errorMessage, isLoading, isLocalOnly } = useAuth();
   const [showSignUp, setShowSignUp] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
   const navigate = useNavigate();
@@ -47,21 +48,29 @@ export function WelcomePage() {
       {errorMessage && <p className={['v-welcome__error', VFont.caption].join(' ')}>{errorMessage}</p>}
 
       <div className="v-welcome__actions">
-        <button
-          type="button"
-          className="v-apple-signin-btn"
-          onClick={handleAppleSignIn}
-          disabled={isLoading}
-        >
-          <KeyRound size={18} strokeWidth={2.25} aria-hidden="true" />
-          {isLoading ? 'Signing in…' : 'Sign in with Apple'}
-        </button>
+        {isIOS() && (
+          <button
+            type="button"
+            className="v-apple-signin-btn"
+            onClick={handleAppleSignIn}
+            disabled={isLoading}
+          >
+            <KeyRound size={18} strokeWidth={2.25} aria-hidden="true" />
+            {isLoading ? 'Signing in…' : 'Sign in with Apple'}
+          </button>
+        )}
 
         <SecondaryButton onClick={() => setShowSignUp(true)}>Continue with Email</SecondaryButton>
 
         <button type="button" className={['v-welcome__existing-account', VFont.subheadline].join(' ')} onClick={() => setShowSignIn(true)}>
           I already have an account
         </button>
+
+        {isLocalOnly && (
+          <p className={['v-welcome__note', VFont.caption].join(' ')}>
+            Your account is stored securely on this phone only.
+          </p>
+        )}
       </div>
 
       <SignUpSheet isOpen={showSignUp} onClose={() => setShowSignUp(false)} />

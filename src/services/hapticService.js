@@ -1,30 +1,41 @@
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { isNative } from '../platform/platform';
+
 // hapticService.js
 // ----------------
 // CONVERSION NOTE (SwiftUI -> React): HapticManager.swift wrapped
-// UIFeedbackGenerator (Apple's Taptic Engine API). The closest web
-// equivalent is the Vibration API (`navigator.vibrate`), which only works
-// on Android Chrome over HTTP(S) in response to a user gesture — iOS Safari
-// doesn't expose it at all. Every function here is intentionally a safe
-// no-op everywhere else, mirroring how the Swift version is also silently
-// a no-op on devices without the Taptic Engine (e.g. some iPads). The
-// *call sites* (SOS button, sign-up success, etc.) stay identical either way
-// — exactly the same "doesn't matter where you call it from" design as the
-// original.
+// UIFeedbackGenerator (Apple's Taptic Engine API).
+//
+// MOBILE: inside the Capacitor app we use @capacitor/haptics, which drives
+// UIFeedbackGenerator on iOS and the Vibrator service on Android — the real
+// equivalent of the Swift original. In a plain browser we fall back to the
+// Vibration API (Android Chrome only; iOS Safari has none). Every call is
+// fire-and-forget: haptics must never block or break an SOS flow, so a
+// failing plugin call is caught and ignored (haptics are cosmetic).
 
 function vibrate(pattern) {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-    navigator.vibrate(pattern);
+    try { navigator.vibrate(pattern); } catch { /* unsupported — cosmetic only */ }
+  }
+}
+
+function run(nativeCall, webPattern) {
+  if (isNative()) {
+    nativeCall().catch(() => { /* cosmetic only */ });
+  } else {
+    vibrate(webPattern);
   }
 }
 
 export const haptics = {
-  success: () => vibrate(15),
-  warning: () => vibrate([20, 60, 20]),
-  error: () => vibrate([30, 80, 30, 80, 30]),
-  light: () => vibrate(8),
-  medium: () => vibrate(18),
-  selection: () => vibrate(6),
+  success: () => run(() => Haptics.notification({ type: NotificationType.Success }), 15),
+  warning: () => run(() => Haptics.notification({ type: NotificationType.Warning }), [20, 60, 20]),
+  error: () => run(() => Haptics.notification({ type: NotificationType.Error }), [30, 80, 30, 80, 30]),
+  light: () => run(() => Haptics.impact({ style: ImpactStyle.Light }), 8),
+  medium: () => run(() => Haptics.impact({ style: ImpactStyle.Medium }), 18),
+  selection: () => run(() => Haptics.selectionChanged(), 6),
 
   /** Distinct, attention-grabbing pattern reserved for SOS activation. */
-  emergencyTrigger: () => vibrate([40, 150, 40, 200, 80]),
+  emergencyTrigger: () =>
+    run(() => Haptics.vibrate({ duration: 400 }), [40, 150, 40, 200, 80]),
 };

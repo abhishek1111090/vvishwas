@@ -12,11 +12,12 @@
 .v-sheet {
   width: 100%;
   max-width: 560px;
-  max-height: 88vh;
+  max-height: calc(100dvh - var(--safe-area-top) - 24px);
   overflow-y: auto;
   background: var(--color-background);
   border-radius: var(--radius-large) var(--radius-large) 0 0;
-  padding: 0 var(--space-lg) var(--space-lg);
+  padding: 0 var(--space-lg) calc(var(--space-lg) + var(--safe-area-bottom));
+  overscroll-behavior: contain;
   animation: v-sheet-slide-up 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 

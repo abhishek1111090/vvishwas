@@ -1,18 +1,29 @@
+import { createRecordingWriter } from './recordingStore';
+
 /**
- * recordingService.js — Real audio + video recording with Safari/iOS compatibility
+ * recordingService.js — audio + video evidence recording
  *
- * Safari-specific constraints:
- *  • MediaRecorder supported from Safari 14.1 (iOS 14.5, Apr 2021)
- *  • Supported MIME types: audio/mp4, video/mp4  (NOT webm/ogg)
- *  • getUserMedia must be called within a user-gesture call stack on iOS
- *  • Cannot combine audio+video in one stream reliably — record separately
- *  • timeslice on start() works but ondataavailable may fire irregularly
+ * Uses getUserMedia + MediaRecorder, which ARE available inside the native
+ * app's WebView (Android System WebView / iOS 14.5+ WKWebView). Capacitor
+ * routes the WebView's media request to the real OS permission dialog
+ * (RECORD_AUDIO / CAMERA on Android; NSMicrophone/NSCameraUsageDescription
+ * on iOS), so no extra native recorder plugin is needed. This has to be
+ * confirmed on physical devices — see README "Physical device tests".
  *
- * Architecture: plain pub-sub singleton (same shape as emergencyManager)
- * so EmergencyContext can subscribe via useSyncExternalStore.
+ * Lifecycle guarantees:
+ *  • At most one recorder per kind. A second start() while requesting or
+ *    recording is refused — duplicate sessions can't leak camera/mic.
+ *  • Chunks are flushed every second to recordingStore (app-private file
+ *    on native, memory on web).
+ *  • If the OS ends a track (call comes in, another app grabs the camera,
+ *    permission revoked) the recorder is finalized and marked interrupted.
+ *  • stopAll() resolves only after files are flushed, with the REAL outcome
+ *    per kind ('saved' | 'ready' | 'error' | 'idle'); nothing is reported
+ *    saved unless the write succeeded.
+ *  • Every stop path releases the camera/microphone tracks.
  */
 
-function getSupportedMimeType(kind) {
+export function getSupportedMimeType(kind) {
   if (typeof MediaRecorder === 'undefined') return '';
   const candidates =
     kind === 'video'
@@ -20,8 +31,8 @@ function getSupportedMimeType(kind) {
           'video/mp4;codecs=avc1,mp4a.40.2',
           'video/mp4;codecs=avc1',
           'video/mp4',
-          'video/webm;codecs=vp9,opus',
-          'video/webm;codecs=vp8,opus',
+          'video/webm;codecs=vp9',
+          'video/webm;codecs=vp8',
           'video/webm',
         ]
       : [
@@ -34,58 +45,180 @@ function getSupportedMimeType(kind) {
   return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
 }
 
-function createRecordingService() {
-  // Internal mutable state
-  let audioStream = null;
-  let videoStream = null;
-  let audioRecorder = null;
-  let videoRecorder = null;
-  let audioChunks = [];
-  let videoChunks = [];
+const CONSTRAINTS = {
+  audio: {
+    audio: { echoCancellation: true, noiseSuppression: true },
+    video: false,
+  },
+  video: {
+    video: {
+      facingMode: { ideal: 'environment' },   // back camera for evidence
+      width: { ideal: 1280, max: 1920 },
+      height: { ideal: 720, max: 1080 },
+    },
+    audio: false,                              // audio is captured separately
+  },
+};
 
-  // Stable snapshot object — only replaced in _notify(), never mutated in place
-  // (same pattern as the fixed emergencyManager to satisfy useSyncExternalStore)
+function friendlyMediaError(err, kind) {
+  const device = kind === 'audio' ? 'Microphone' : 'Camera';
+  switch (err?.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+    case 'SecurityError':
+      return `${device} permission denied.`;
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return `No ${device.toLowerCase()} found on this device.`;
+    case 'NotReadableError':
+    case 'AbortError':
+      return `${device} is in use by another app.`;
+    default:
+      return err?.message ?? `${device} unavailable.`;
+  }
+}
+
+const IDLE_KIND = { status: 'idle', error: null, mime: '', url: null, path: null, bytes: 0, interrupted: false };
+
+export function createRecordingService({ createWriter = createRecordingWriter } = {}) {
+  const slots = {
+    audio: { stream: null, recorder: null, writer: null, done: null },
+    video: { stream: null, recorder: null, writer: null, done: null },
+  };
+
   let snapshot = {
-    audioStatus: 'idle',   // idle | requesting | recording | stopped | error
-    videoStatus: 'idle',
-    audioUrl: null,        // object URL for download once stopped
-    videoUrl: null,
-    audioMime: '',
-    videoMime: '',
-    audioError: null,
-    videoError: null,
-    isSupported: false,    // set on first access
+    audio: { ...IDLE_KIND },
+    video: { ...IDLE_KIND },
+    isSupported:
+      typeof MediaRecorder !== 'undefined' &&
+      typeof globalThis.navigator?.mediaDevices?.getUserMedia === 'function',
   };
 
   const listeners = new Set();
 
-  function _notify(patch) {
-    snapshot = { ...snapshot, ...patch };
+  function _set(kind, patch) {
+    snapshot = { ...snapshot, [kind]: { ...snapshot[kind], ...patch } };
     listeners.forEach((l) => l());
   }
 
-  function _stopStream(stream) {
-    if (stream) stream.getTracks().forEach((t) => t.stop());
+  function _releaseStream(kind) {
+    const slot = slots[kind];
+    if (slot.stream) slot.stream.getTracks().forEach((t) => t.stop());
+    slot.stream = null;
   }
 
-  function _revokeIfNeeded(url) {
-    if (url) {
-      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+  async function start(kind, sessionId) {
+    const status = snapshot[kind].status;
+    if (status === 'requesting' || status === 'recording' || status === 'stopping') {
+      return { success: false, error: `${kind} recording already in progress`, duplicate: true };
+    }
+    if (!snapshot.isSupported) {
+      const error = 'Recording is not supported on this device.';
+      _set(kind, { ...IDLE_KIND, status: 'error', error });
+      return { success: false, error };
+    }
+
+    _set(kind, { ...IDLE_KIND, status: 'requesting' });
+    const slot = slots[kind];
+
+    try {
+      slot.stream = await navigator.mediaDevices.getUserMedia(CONSTRAINTS[kind]);
+    } catch (err) {
+      const error = friendlyMediaError(err, kind);
+      _set(kind, { status: 'error', error });
+      return { success: false, error };
+    }
+
+    // stopAll()/reset() may have run while the permission prompt was up.
+    if (snapshot[kind].status !== 'requesting') {
+      _releaseStream(kind);
+      return { success: false, error: 'Recording was stopped before it started.' };
+    }
+
+    try {
+      const mimeType = getSupportedMimeType(kind);
+      const recorder = new MediaRecorder(slot.stream, mimeType ? { mimeType } : {});
+      const effectiveMime = recorder.mimeType || mimeType;
+      const writer = createWriter({ sessionId, kind, mime: effectiveMime });
+      slot.recorder = recorder;
+      slot.writer = writer;
+
+      slot.done = new Promise((resolve) => {
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) writer.append(e.data);
+        };
+        recorder.onstop = () => resolve();
+        recorder.onerror = (e) => {
+          _set(kind, { error: e.error?.message ?? 'Recording error' });
+          resolve();
+        };
+      });
+
+      // The OS can end a track under us (incoming call, camera taken by
+      // another app, permission revoked from Settings).
+      slot.stream.getTracks().forEach((track) => {
+        track.onended = () => {
+          if (snapshot[kind].status === 'recording') {
+            _set(kind, { interrupted: true });
+            finalize(kind);
+          }
+        };
+      });
+
+      recorder.start(1000); // 1s chunks → flushed to storage as they arrive
+      _set(kind, { status: 'recording', mime: effectiveMime });
+      return { success: true };
+    } catch (err) {
+      _releaseStream(kind);
+      const error = err?.message ?? String(err);
+      _set(kind, { status: 'error', error });
+      return { success: false, error };
     }
   }
 
-  // ─── public API ──────────────────────────────────────────────────────────
+  /** Stop one recorder, flush its file, release hardware. Resolves with the real result. */
+  async function finalize(kind) {
+    const slot = slots[kind];
+    const current = snapshot[kind];
+
+    if (current.status === 'requesting') {
+      // Permission prompt still open — start() will see this and release.
+      _set(kind, { status: 'idle' });
+      return { ...snapshot[kind] };
+    }
+    if (current.status !== 'recording' || !slot.recorder) {
+      _releaseStream(kind);
+      return { ...current };
+    }
+
+    _set(kind, { status: 'stopping' });
+    try {
+      if (slot.recorder.state !== 'inactive') slot.recorder.stop();
+    } catch {
+      // Recorder already stopped by the browser; `done` resolves via onstop/onerror.
+    }
+    await Promise.race([slot.done, new Promise((r) => setTimeout(r, 5000))]);
+    _releaseStream(kind);
+
+    const result = await slot.writer.finalize();
+    slot.recorder = null;
+    slot.writer = null;
+    slot.done = null;
+
+    _set(kind, {
+      status: result.status,
+      error: result.error ?? snapshot[kind].error ?? null,
+      url: result.url ?? null,
+      path: result.path ?? null,
+      bytes: result.bytes ?? 0,
+      mime: result.mime ?? snapshot[kind].mime,
+    });
+    return { ...snapshot[kind] };
+  }
 
   return {
     subscribe(listener) {
       listeners.add(listener);
-      // Hydrate isSupported on first subscription (can't access navigator at module init on SSR)
-      if (!snapshot.isSupported) {
-        const supported =
-          typeof MediaRecorder !== 'undefined' &&
-          typeof navigator?.mediaDevices?.getUserMedia === 'function';
-        snapshot = { ...snapshot, isSupported: supported };
-      }
       return () => listeners.delete(listener);
     },
 
@@ -93,138 +226,37 @@ function createRecordingService() {
       return snapshot;
     },
 
-    /**
-     * Start microphone audio recording.
-     * Must be called within (or in a Promise chain from) a user-gesture handler
-     * on iOS Safari so getUserMedia is allowed.
-     */
-    async startAudio() {
-      // Revoke any previous recording URL to free memory
-      _revokeIfNeeded(snapshot.audioUrl);
-      _notify({ audioStatus: 'requesting', audioUrl: null, audioError: null });
-
-      try {
-        audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 44100,
-          },
-          video: false,
-        });
-
-        audioChunks = [];
-        const mimeType = getSupportedMimeType('audio');
-        const options = mimeType ? { mimeType } : {};
-        audioRecorder = new MediaRecorder(audioStream, options);
-
-        audioRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) audioChunks.push(e.data);
-        };
-
-        audioRecorder.onstop = () => {
-          const effectiveMime = audioRecorder.mimeType || mimeType || 'audio/mp4';
-          const blob = new Blob(audioChunks, { type: effectiveMime });
-          const url = URL.createObjectURL(blob);
-          _notify({ audioStatus: 'stopped', audioUrl: url, audioMime: effectiveMime });
-        };
-
-        audioRecorder.onerror = (e) => {
-          _notify({ audioStatus: 'error', audioError: e.error?.message ?? 'Recording error' });
-        };
-
-        // timeslice=1000ms — collect a chunk every second so data isn't lost
-        // if the tab is backgrounded (iOS will terminate background media after ~3 min)
-        audioRecorder.start(1000);
-        _notify({ audioStatus: 'recording', audioMime: mimeType });
-        return { success: true };
-      } catch (err) {
-        const msg = err?.message ?? String(err);
-        _notify({ audioStatus: 'error', audioError: msg });
-        return { success: false, error: msg };
-      }
+    startAudio(sessionId) {
+      return start('audio', sessionId);
     },
 
-    /**
-     * Start back-camera video recording (no audio — audio is captured separately).
-     */
-    async startVideo() {
-      _revokeIfNeeded(snapshot.videoUrl);
-      _notify({ videoStatus: 'requesting', videoUrl: null, videoError: null });
-
-      try {
-        // Prefer back (environment) camera for evidence capture
-        const constraints = {
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-          },
-          audio: false,
-        };
-
-        videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        videoChunks = [];
-        const mimeType = getSupportedMimeType('video');
-        const options = mimeType ? { mimeType } : {};
-        videoRecorder = new MediaRecorder(videoStream, options);
-
-        videoRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) videoChunks.push(e.data);
-        };
-
-        videoRecorder.onstop = () => {
-          const effectiveMime = videoRecorder.mimeType || mimeType || 'video/mp4';
-          const blob = new Blob(videoChunks, { type: effectiveMime });
-          const url = URL.createObjectURL(blob);
-          _notify({ videoStatus: 'stopped', videoUrl: url, videoMime: effectiveMime });
-        };
-
-        videoRecorder.onerror = (e) => {
-          _notify({ videoStatus: 'error', videoError: e.error?.message ?? 'Recording error' });
-        };
-
-        videoRecorder.start(1000);
-        _notify({ videoStatus: 'recording', videoMime: mimeType });
-        return { success: true };
-      } catch (err) {
-        const msg = err?.message ?? String(err);
-        _notify({ videoStatus: 'error', videoError: msg });
-        return { success: false, error: msg };
-      }
+    startVideo(sessionId) {
+      return start('video', sessionId);
     },
 
-    /** Stop both recorders gracefully. onstop callbacks fire async and create the URLs. */
-    stopAll() {
-      if (audioRecorder && audioRecorder.state !== 'inactive') {
-        try { audioRecorder.stop(); } catch { /* already stopped */ }
-      }
-      _stopStream(audioStream);
-      audioStream = null;
-
-      if (videoRecorder && videoRecorder.state !== 'inactive') {
-        try { videoRecorder.stop(); } catch { /* already stopped */ }
-      }
-      _stopStream(videoStream);
-      videoStream = null;
+    isBusy() {
+      return ['requesting', 'recording', 'stopping'].some(
+        (s) => snapshot.audio.status === s || snapshot.video.status === s
+      );
     },
 
-    /** Hard reset — stop everything and clear URLs (used on SOS cancel). */
-    reset() {
-      this.stopAll();
-      _revokeIfNeeded(snapshot.audioUrl);
-      _revokeIfNeeded(snapshot.videoUrl);
-      audioChunks = [];
-      videoChunks = [];
-      _notify({
-        audioStatus: 'idle',
-        videoStatus: 'idle',
-        audioUrl: null,
-        videoUrl: null,
-        audioError: null,
-        videoError: null,
-      });
+    /** Stop both recorders and wait until files are written. */
+    async stopAll() {
+      const [audio, video] = await Promise.all([finalize('audio'), finalize('video')]);
+      return { audio, video };
+    },
+
+    /** Stop everything and return to idle (revokes in-memory web URLs). */
+    async reset() {
+      const results = await this.stopAll();
+      for (const kind of ['audio', 'video']) {
+        if (snapshot[kind].url) {
+          try { URL.revokeObjectURL(snapshot[kind].url); } catch { /* already revoked */ }
+        }
+      }
+      snapshot = { ...snapshot, audio: { ...IDLE_KIND }, video: { ...IDLE_KIND } };
+      listeners.forEach((l) => l());
+      return results;
     },
   };
 }

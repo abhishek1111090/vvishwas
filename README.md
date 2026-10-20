@@ -1,179 +1,185 @@
-# VISHWAS — React Web App (Phase 1)
+# VISHWAS — Women's Safety & Emergency Response (Android + iOS)
 
-A complete React port of the VISHWAS Phase 1 SwiftUI iOS app. Every screen,
-service, and design-system component has been converted 1:1 from Swift into
-production-grade React, with inline comments throughout each file explaining
-exactly how the SwiftUI concept maps to the React equivalent.
+VISHWAS is a React + Vite app packaged as a **native Android and iOS app with
+Capacitor 8**. One React codebase runs inside the native WebView; device
+features (GPS, camera, microphone, notifications, haptics, battery, SMS,
+private file storage) go through Capacitor plugins plus a small app-local
+native plugin (`VishwasNative`).
 
-**Build status: ✅ passes `npm run build` and `npm run lint` with zero errors.**
-
----
-
-## Folder structure
-
-```
-src/
-├── app/
-│   ├── App.jsx               ← mirrors VISHWASApp.swift (@main entry + providers)
-│   └── RootRouter.jsx        ← mirrors RootRouterView.swift (onboarding/auth/home branching)
-├── components/               ← shared UI components used across multiple pages
-│   ├── BottomSheet.jsx/css   ← mirrors .sheet(isPresented:) / .presentationDetents([.medium])
-│   ├── ComingSoonModal.jsx   ← placeholder for Phase 2–4 quick-action features
-│   ├── LabeledField.jsx      ← mirrors LabeledField in SignUpView.swift
-│   ├── ProtectedRoute.jsx    ← auth/onboarding guard (mirrors RootRouterView.swift branching)
-│   └── SheetHeader.jsx       ← mirrors .navigationTitle + .toolbar { ToolbarItem(.cancellationAction) }
-├── context/
-│   ├── AppStateContext.jsx   ← mirrors AppState.swift (onboarding flag)
-│   ├── AuthContext.jsx       ← mirrors AppState.swift (user/session) + AuthViewModel.swift
-│   ├── ContactsContext.jsx   ← mirrors SwiftData @Query reactivity for ContactsListView
-│   ├── EmergencyContext.jsx  ← mirrors @Environment(EmergencyManager.self)
-│   └── PermissionsContext.jsx← mirrors PermissionsManager.swift (@Observable singleton)
-├── design-system/
-│   ├── theme.css             ← CSS custom properties mirroring VTheme color/spacing/radius tokens
-│   ├── theme.js              ← JS-readable mirror of the same tokens (for inline styles)
-│   ├── typography.css        ← utility classes mirroring VFont's Dynamic Type scale
-│   └── components/
-│       ├── Button.jsx/css    ← mirrors PrimaryButtonStyle / SecondaryButtonStyle
-│       ├── Card.jsx/css      ← mirrors CardContainer.swift
-│       └── StatusPill.jsx/css← mirrors StatusPill + IconBadge
-├── pages/
-│   ├── auth/
-│   │   ├── WelcomePage.jsx   ← mirrors WelcomeAuthView.swift
-│   │   ├── SignUpSheet.jsx   ← mirrors SignUpView.swift
-│   │   ├── SignInSheet.jsx   ← mirrors SignInView.swift
-│   │   └── ForgotPasswordSheet.jsx ← mirrors ForgotPasswordView.swift
-│   ├── contacts/
-│   │   ├── ContactsListPage.jsx    ← mirrors ContactsListView.swift
-│   │   ├── ContactRow.jsx          ← mirrors ContactRow.swift
-│   │   ├── AddEditContactModal.jsx ← mirrors AddEditContactView.swift
-│   │   └── ImportContactsModal.jsx ← mirrors ContactPickerView.swift
-│   ├── home/
-│   │   ├── HomePage.jsx            ← mirrors HomeView.swift
-│   │   ├── SafetyStatusCard.jsx    ← mirrors SafetyStatusCard.swift
-│   │   ├── QuickActionsGrid.jsx    ← mirrors QuickActionsGrid.swift
-│   │   └── RecentActivityList.jsx  ← mirrors RecentActivityList.swift
-│   ├── onboarding/
-│   │   ├── OnboardingFlow.jsx      ← mirrors OnboardingView.swift (TabView paging)
-│   │   ├── OnboardingPageView.jsx  ← mirrors OnboardingPageView struct
-│   │   ├── PermissionsSetupView.jsx← mirrors PermissionsSetupView.swift
-│   │   └── onboardingData.js       ← mirrors OnboardingPage.pages static array
-│   └── sos/
-│       ├── SOSButton.jsx           ← mirrors SOSButton.swift (pulsing rings, presentational)
-│       ├── SOSConfirmModal.jsx     ← mirrors SOSConfirmSheet.swift
-│       └── EmergencyActiveOverlay.jsx ← mirrors EmergencyActiveView.swift
-├── services/
-│   ├── authService.js        ← mirrors AuthService.swift (local Phase 1 stub, SHA-256 via Web Crypto)
-│   ├── contactsService.js    ← mirrors PersistenceController.swift + EmergencyContact @Model
-│   ├── emergencyManager.js   ← mirrors EmergencyManager.swift (THE canonical trigger)
-│   ├── hapticService.js      ← mirrors HapticManager.swift (Vibration API where available)
-│   └── permissionsService.js ← mirrors PermissionsManager.swift's platform wrappers
-└── utils/
-    ├── constants.js          ← mirrors KeychainKey + scattered UserDefaults string keys
-    ├── formatDate.js         ← mirrors Swift Date.FormatStyle usage
-    ├── storage.js            ← thin localStorage JSON helper (replaces UserDefaults + SwiftData)
-    ├── useBattery.js         ← mirrors UIDevice.current.batteryLevel + 30s Timer
-    ├── useTripleTap.js       ← mirrors TripleTapTrigger.swift's ViewModifier
-    └── validation.js         ← mirrors AuthViewModel's isValidEmail, password-length guard
-```
+- App name: **VISHWAS**
+- App ID / bundle ID: **`com.vishwas.safety`**
+- Android: minSdk 24 (Android 7.0), target/compile SDK 36
+- iOS: 15.0+ (Swift Package Manager, no CocoaPods)
 
 ---
 
-## Quick start
+## Building
+
+### Prerequisites
+
+| Tool | Version | Notes |
+|---|---|---|
+| Node.js | 22+ | Capacitor 8 CLI requirement |
+| JDK | 21 | Android Gradle Plugin requirement (JDK 25 is too new) |
+| Android SDK | platform 36, build-tools 36 | Android Studio, or command-line tools |
+| Xcode | 16+ on macOS | iOS only |
+
+### Web build + tests
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # production bundle → dist/
-npm run lint       # zero warnings, zero errors
+npm run lint        # ESLint
+npm test            # Vitest (unit + UI flow tests, jsdom)
+npm run build       # production bundle → dist/
+npm run dev         # browser preview at http://localhost:5173 (development only)
 ```
 
----
+### Android debug APK
 
-## Key architecture decisions
+```bash
+npm run build
+npx cap sync android
+cd android
+gradlew assembleDebug          # Windows (./gradlew on macOS/Linux)
+```
 
-### SwiftUI → React conversion map
+Output: `android/app/build/outputs/apk/debug/app-debug.apk`.
+Install on a phone with USB debugging: `adb install -r app/build/outputs/apk/debug/app-debug.apk`,
+or open the `android/` folder in Android Studio and press Run.
 
-| SwiftUI | React equivalent |
-|---|---|
-| `@Observable` class | `useSyncExternalStore` (EmergencyManager) or `useState` + Context |
-| `@Environment(..)` | React Context + custom hook (`useEmergency()`, `useAuth()`, …) |
-| `@Query` (SwiftData) | `ContactsContext` — shared state array updated on every mutation |
-| `NavigationStack` / `NavigationLink` | React Router `<Routes>` + `<Link>` + `useNavigate()` |
-| `.sheet(isPresented:)` | `<BottomSheet isOpen={…}>` rendered conditionally |
-| `.fullScreenCover(isPresented:)` | `position: fixed` `<EmergencyActiveOverlay>` with no close button |
-| `ViewModifier` (TripleTapTrigger) | `useTripleTap()` custom hook |
-| SwiftData `ModelContainer` | `localStorage` via `contactsService.js` |
-| `Keychain` | `localStorage` *(see security note below)* |
-| `UserDefaults` | `localStorage` |
-| `UIDevice.current.batteryLevel` + `Timer` | `useBattery()` (Battery Status API, event-driven) |
-| `AVFoundation` / `CoreLocation` permissions | `permissionsService.js` (browser Permissions API) |
-| `UIFeedbackGenerator` (Taptic Engine) | `hapticService.js` (Vibration API, Android Chrome only) |
-| `Dynamic Type` | `rem` units + `prefers-reduced-motion` |
-| `Color.primary` / `systemBackground` | CSS custom properties with `prefers-color-scheme` |
-| `@main` struct | `main.jsx` + `App.jsx` |
+`android/local.properties` must point at your SDK (`sdk.dir=…`); Android Studio
+writes it automatically. Set `JAVA_HOME` to a JDK 21.
 
-### The ONE canonical SOS trigger
+**Release build:** create a keystore (`keytool -genkey -v -keystore vishwas.jks …`),
+add a `signingConfigs.release` block in `android/app/build.gradle` that reads
+the passwords from environment variables (never commit them), then
+`gradlew bundleRelease` for a Play Store `.aab`.
 
-`emergencyManager.trigger(source)` in `src/services/emergencyManager.js` is
-the **only** path that starts an emergency session. Every entry point routes
-through it:
+### iOS (macOS + Xcode required)
 
-- **Manual SOS button** → user confirms in `SOSConfirmModal` → calls
-  `emergency.trigger('button')`
-- **Triple-tap anywhere on home screen** → bypasses confirmation, calls
-  `emergency.trigger('tripleTap')` directly via `useTripleTap()`
-- **Phase 2+** voice, watch, Siri equivalent → will also call
-  `emergencyManager.trigger(source)` directly, bypassing confirmation
+```bash
+npm run build
+npx cap sync ios
+npx cap open ios               # opens ios/App/App.xcodeproj
+```
 
-This mirrors the exact architecture lesson from the companion React (Node/Express)
-app in this project: a second trigger path that doesn't go through the same
-state machine as the button was the root cause of a real voice-activation bug
-found and fixed during development. The pattern is intentional.
+In Xcode: select the **App** target → Signing & Capabilities → choose your
+Team → run on a device or simulator. Product → Archive for an IPA.
+The iOS project, Info.plist permission strings and the Swift plugin are
+configured, but **the iOS app has not been compiled** (this project was
+prepared on Windows).
+
+### Optional server
+
+Copy `.env.example` to `.env.local` and set `VITE_VISHWAS_API_URL` (HTTPS)
+before `npm run build` to enable server-side alert delivery and password
+reset. Without it those features say "not configured" — they never fake success.
 
 ---
 
-## Important notes
+## Architecture
 
-### Auth is a Phase 1 local stub
+```
+src/
+├── app/            App.jsx (providers), RootRouter.jsx (routes + Android back button)
+├── platform/       platform.js (native/web detection), vishwasNative.js (native plugin JS API),
+│                   backButton.js + useAndroidBackButton.js
+├── context/        AppState, Auth, Permissions, Contacts, Emergency
+├── services/
+│   ├── emergencyManager.js     SOS state machine — emergencyManager.trigger(source) is THE trigger
+│   ├── emergencyController.js  orchestrates recording, GPS, alerts, notification, teardown
+│   ├── recordingService.js     getUserMedia + MediaRecorder (audio & video, separately)
+│   ├── recordingStore.js       streams chunks into app-private files (native) / memory (web)
+│   ├── locationService.js      @capacitor/geolocation watch + one-shot, error classification
+│   ├── alertService.js         alert payload; server → Android SMS → SMS composer fallback
+│   ├── notificationService.js  ongoing "emergency active" notification
+│   ├── permissionsService.js   native + browser permission checks/requests
+│   ├── authService.js          device-local accounts, PBKDF2 password hashing
+│   ├── contactsService.js      validated contact CRUD
+│   ├── apiClient.js            optional HTTPS server client (env-configured)
+│   └── hapticService.js        @capacitor/haptics (Vibration API fallback)
+├── pages/          onboarding, auth, home, contacts, sos, history, profile
+└── test/           Vitest setup + fakes
 
-`authService.js` hashes passwords with SHA-256 (via the browser's built-in
-`crypto.subtle` — the JS equivalent of CryptoKit) and stores everything in
-`localStorage`. There is no server. When you add the Phase 3 FastAPI backend,
-every function in `authService.js` gets rewired to call it instead. The public
-shape (`signUp`, `signIn`, `signOut`, `sendPasswordReset`) is unchanged, so
-nothing in the UI layer needs updating. Comments marking every spot are labelled
-`// TODO: Phase 3`.
+android/app/src/main/java/com/vishwas/safety/VishwasNativePlugin.java
+ios/App/App/VishwasNativePlugin.swift
+```
 
-### localStorage vs Keychain
+### SOS flow
 
-`localStorage` is not encrypted at rest. `KeychainService.swift` in the iOS
-app stored credentials in the Secure Enclave. The Phase 3 backend adds proper
-JWT sessions, at which point only a short-lived token — not a password hash —
-ever lives in the browser, which is the correct web-equivalent security posture.
-**Do not ship Phase 1's auth to real users.**
+```
+SOS button → confirm sheet ─┐
+Triple-tap anywhere ────────┴─► emergencyController.startEmergency(source)
+                                  └─► emergencyManager.trigger(source)   (refuses if already active)
+                                        ├─ recordingService.startAudio / startVideo
+                                        ├─ locationService.start (high accuracy, foreground)
+                                        ├─ notificationService.showEmergencyActive
+                                        └─ alertService.sendAutomatic (after first GPS fix or 15 s)
+"I'm Safe" / "False Alarm" ─► stop GPS → flush & stop recorders → clear notification
+                              → record real outcomes → session moved to history
+```
 
-### Apple Sign In
+The active session is persisted on every change. If the app is killed
+mid-emergency it is restored on next launch (location tracking resumes; the
+overlay offers "Restart recording").
 
-The "Sign in with Apple" button calls `authService.signInWithApplePlaceholder()`
-which creates a local demo user — exactly the same Phase 1 stub as the iOS
-version. A real implementation needs Apple's
-[Sign in with Apple JS](https://developer.apple.com/documentation/sign_in_with_apple/sign_in_with_apple_js)
-SDK plus a registered Services ID and redirect URI. The button is wired and
-styled correctly; only the SDK call needs to be swapped in.
+### Contact alerts — what is and isn't confirmed
 
-### Haptic feedback
+| Channel | When | Reported status |
+|---|---|---|
+| VISHWAS server | `VITE_VISHWAS_API_URL` set | "Accepted by server" (not "delivered") |
+| Android SMS (`SmsManager`) | Android + SEND_SMS granted | per contact: "Sent to carrier" / "Failed"; "Delivered" only if the carrier sends a delivery report |
+| SMS composer | iOS, web, or SMS not granted | "SMS app opened — not confirmed sent" (the user must press Send) |
 
-`hapticService.js` uses the Vibration API, which only works on Android Chrome
-(over HTTPS, in response to a user gesture). iOS Safari doesn't expose it. All
-calls are silent no-ops everywhere else — same "call it unconditionally, let
-the platform decide" approach as the Swift `HapticManager`.
+### Security & privacy
+
+- No plaintext passwords: PBKDF2-HMAC-SHA256, 310 000 iterations, per-user
+  random salt; legacy SHA-256 hashes are upgraded on sign-in.
+- Same error for unknown email and wrong password.
+- Recordings are written to the app's private data directory, never to the
+  gallery, Downloads, or a public cache.
+- Android backup and device-transfer are disabled (`allowBackup=false`,
+  `data_extraction_rules.xml`) so data doesn't leave the phone.
+- Cleartext HTTP disabled; the optional server must be HTTPS.
+- No secrets in the bundle; `.env*` files are git-ignored.
 
 ---
 
-## What's not here yet (later phases)
+## Known limitations
 
-| Phase | Features |
-|---|---|
-| 2 | Live location sharing (Geolocation watchPosition, map view), audio/video evidence recording (MediaRecorder), push/SMS/email alert sending, media encryption |
-| 3 | FastAPI + PostgreSQL + Redis + S3 + WebSocket backend, JWT auth (replaces local stub), real Apple Sign In with backend token exchange |
-| 4 | Siri Shortcuts equivalent (Web Share API / PWA shortcuts), safety timer, fake call, check-in, safe route, searchable emergency history, Face ID equivalent (WebAuthn), analytics |
+- **Accounts are device-local.** No auth server exists yet; an account lives
+  on one phone. Password reset by email needs the server.
+- **Sign in with Apple** is not configured (button shown on iOS only, says so).
+- **Foreground only.** Location tracking and recording run while VISHWAS is in
+  the foreground. Android 9+ and iOS block camera/microphone access for
+  backgrounded apps; true background tracking needs a foreground service
+  (Android) / background modes (iOS), which are not implemented.
+- **iOS cannot send SMS automatically** — it opens Messages prefilled.
+- **Google Play policy:** apps requesting `SEND_SMS` must be approved under
+  Play's SMS permissions policy (or not request it). The debug APK works for
+  sideloading; a Play release may need a server-side SMS provider instead.
+- **Contact picker** uses the Web Contact Picker API, which the Android
+  WebView does not provide → "Add Manually" in the app.
+- Quick actions (Safety Timer, Fake Call, Check In, Safe Route) remain
+  "coming soon", as in the original project.
+
+## Physical-device tests still required
+
+Automated tests run in jsdom with fakes; they do not prove hardware behaviour.
+On a real Android phone (and later an iPhone):
+
+1. Install, launch, onboarding → each permission prompt appears with the
+   right text; deny one, confirm "Blocked" + **Settings** opens the app page;
+   grant it there and return → status updates.
+2. Home shows a real "Location OK"/battery %; turn Location off → "No Location".
+3. SOS button → confirm → overlay; audio + video show **Recording**; GPS fix
+   appears; contacts receive the SMS (check the phones), statuses match.
+4. "I'm Safe" → History shows Audio/Video **Saved on device**; **Play** works.
+5. Triple-tap → instant SOS; triple-tap again while active → no second session.
+6. Airplane mode during SOS → SMS shows **Failed** (not sent).
+7. Back button: closes sheets, does nothing on the SOS overlay, minimizes on Home.
+8. Kill the app during an SOS → relaunch → session restored.
+9. Incoming call / switch apps during SOS → note what recording does.
+10. Keyboard on Add Contact / Sign Up keeps the field visible; small (5")
+    and large screens; dark mode.
+11. Notification "VISHWAS emergency active" appears during SOS and clears after.

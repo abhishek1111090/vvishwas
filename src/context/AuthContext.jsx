@@ -60,7 +60,7 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const user = await authService.signInWithApplePlaceholder();
+      const user = await authService.signInWithApple();
       setCurrentUser(user);
       return user;
     } catch (err) {
@@ -108,6 +108,8 @@ export function AuthProvider({ children }) {
       signInWithApple,
       sendPasswordReset,
       signOut,
+      isLocalOnly: authService.isLocalOnly,
+      canResetPassword: authService.canResetPassword(),
     }),
     [currentUser, isAuthenticated, isLoading, errorMessage, clearError, signUp, signIn, signInWithApple, sendPasswordReset, signOut]
   );

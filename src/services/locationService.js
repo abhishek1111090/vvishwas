@@ -1,34 +1,121 @@
+import { Geolocation } from '@capacitor/geolocation';
+
 /**
- * locationService.js — Live GPS tracking with watchPosition
+ * locationService.js — Live GPS tracking
  *
  * Pub-sub singleton compatible with useSyncExternalStore.
- * Uses navigator.geolocation.watchPosition for continuous updates every ~5s
- * (actual frequency depends on device and OS — iOS typically updates every
- * 1–15s depending on accuracy mode and movement).
  *
- * Safari/iOS notes:
- *  • navigator.geolocation works on all iOS Safari versions
- *  • enableHighAccuracy: true activates GPS chip (drains battery but gives
- *    accurate coords during an emergency — correct tradeoff)
- *  • iOS will stop background geolocation when the browser tab is backgrounded
- *    unless the PWA is installed to home screen. We notify the user about this.
+ * MOBILE: uses @capacitor/geolocation, which talks to the Fused Location
+ * Provider on Android and CLLocationManager on iOS inside the native app,
+ * and falls back to navigator.geolocation in a plain browser — so the same
+ * calls work everywhere and only the error codes differ (classifyError()).
+ *
+ * Honesty rules:
+ *  • `location` is only ever set from a real position fix.
+ *  • An error never clears the last real fix, but `status` becomes 'error'
+ *    and `lastFixAt` lets the UI show how old the coordinates are.
+ *  • Tracking is FOREGROUND ONLY. Background tracking would need a
+ *    foreground service (Android) and the "Always" permission + background
+ *    mode (iOS) — neither is configured, so we never claim it.
+ *
+ * Battery: high-accuracy tracking only runs during an active emergency;
+ * the dashboard uses a single low-accuracy fix with a cached position.
  */
 
-function createLocationService() {
-  let watchId = null;
+export const LocationErrorKind = {
+  permissionDenied: 'permissionDenied',
+  servicesDisabled: 'servicesDisabled',
+  unavailable: 'unavailable',
+  timeout: 'timeout',
+  unsupported: 'unsupported',
+  unknown: 'unknown',
+};
 
-  let snapshot = {
-    status: 'idle',      // idle | tracking | error
-    location: null,      // { latitude, longitude, accuracy, speed, heading, timestamp }
-    error: null,
-    updateCount: 0,      // increments on each position update (drives log entry on first fix)
+const FRIENDLY = {
+  permissionDenied: 'Location permission denied. Allow location for VISHWAS in Settings.',
+  servicesDisabled: 'Location services are turned off. Turn on Location in your device settings.',
+  unavailable: 'Location signal unavailable. Move to an open area.',
+  timeout: 'Location request timed out. Still trying…',
+  unsupported: 'Location is not supported on this device.',
+  unknown: 'Could not get your location.',
+};
+
+/** Map native plugin errors (OS-PLUG-GLOC-xxxx) and browser GeolocationPositionError codes. */
+export function classifyLocationError(err) {
+  const code = err?.code;
+  const msg = String(err?.message ?? '').toLowerCase();
+  if (code === 1 || code === 'OS-PLUG-GLOC-0003' || code === 'OS-PLUG-GLOC-0008' || msg.includes('denied')) {
+    return LocationErrorKind.permissionDenied;
+  }
+  if (
+    code === 'OS-PLUG-GLOC-0007' || code === 'OS-PLUG-GLOC-0009' || code === 'OS-PLUG-GLOC-0017' ||
+    msg.includes('not enabled') || msg.includes('turned off') || msg.includes('disabled')
+  ) {
+    return LocationErrorKind.servicesDisabled;
+  }
+  if (code === 3 || code === 'OS-PLUG-GLOC-0010' || msg.includes('timeout') || msg.includes('in time')) {
+    return LocationErrorKind.timeout;
+  }
+  if (code === 2 || code === 'OS-PLUG-GLOC-0002') return LocationErrorKind.unavailable;
+  if (msg.includes('not supported') || msg.includes('not implemented')) return LocationErrorKind.unsupported;
+  return LocationErrorKind.unknown;
+}
+
+function toLocation(position) {
+  const c = position?.coords;
+  if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return null;
+  return {
+    latitude: c.latitude,
+    longitude: c.longitude,
+    accuracy: Number.isFinite(c.accuracy) ? Math.round(c.accuracy) : null, // metres
+    speed: c.speed ?? null,           // m/s or null
+    heading: c.heading ?? null,       // degrees or null
+    altitude: c.altitude ?? null,
+    timestamp: new Date(position.timestamp ?? Date.now()).toISOString(),
   };
+}
 
+export function mapsUrl(location) {
+  if (!location) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+}
+
+const INITIAL = {
+  status: 'idle',      // idle | acquiring | tracking | error
+  location: null,      // last REAL fix only
+  error: null,         // friendly message
+  errorKind: null,
+  updateCount: 0,
+  lastFixAt: null,
+};
+
+export function createLocationService(geo = Geolocation) {
+  let watchId = null;
+  let starting = false;
+  let snapshot = { ...INITIAL };
   const listeners = new Set();
 
   function _notify(patch) {
     snapshot = { ...snapshot, ...patch };
     listeners.forEach((l) => l());
+  }
+
+  function _onFix(position) {
+    const location = toLocation(position);
+    if (!location) return;
+    _notify({
+      status: 'tracking',
+      error: null,
+      errorKind: null,
+      updateCount: snapshot.updateCount + 1,
+      location,
+      lastFixAt: location.timestamp,
+    });
+  }
+
+  function _onError(err) {
+    const kind = classifyLocationError(err);
+    _notify({ status: 'error', errorKind: kind, error: FRIENDLY[kind] });
   }
 
   return {
@@ -41,72 +128,90 @@ function createLocationService() {
       return snapshot;
     },
 
-    /** Begin continuous position tracking. Safe to call multiple times — noop if already tracking. */
-    start() {
-      if (watchId !== null) return; // already watching
-
-      if (!navigator.geolocation) {
-        _notify({ status: 'error', error: 'Geolocation is not supported by this browser.' });
-        return;
-      }
-
-      _notify({ status: 'tracking', error: null });
-
-      watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          _notify({
-            status: 'tracking',
-            error: null,
-            updateCount: snapshot.updateCount + 1,
-            location: {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: Math.round(position.coords.accuracy),   // metres
-              speed: position.coords.speed ?? null,             // m/s or null
-              heading: position.coords.heading ?? null,         // degrees or null
-              altitude: position.coords.altitude ?? null,
-              timestamp: new Date(position.timestamp).toISOString(),
-            },
-          });
-        },
-        (err) => {
-          let friendly;
-          switch (err.code) {
-            case err.PERMISSION_DENIED:
-              friendly = 'Location permission denied. Enable it in Settings → Safari → Location.';
-              break;
-            case err.POSITION_UNAVAILABLE:
-              friendly = 'Location signal unavailable. Move to an open area.';
-              break;
-            case err.TIMEOUT:
-              friendly = 'Location request timed out. Retrying…';
-              break;
-            default:
-              friendly = err.message ?? 'Unknown location error.';
-          }
-          _notify({ status: 'error', error: friendly });
-        },
-        {
-          enableHighAccuracy: true,   // use GPS chip, not cell-tower triangulation
-          timeout: 15_000,            // 15s before error callback fires
-          maximumAge: 5_000,          // accept cached position up to 5s old
-        }
-      );
+    isTracking() {
+      return watchId !== null || starting;
     },
 
-    /** Stop the position watcher without resetting stored location. */
-    stop() {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
+    /** Begin continuous high-accuracy tracking. No-op if already tracking. */
+    async start() {
+      if (watchId !== null || starting) return;
+      starting = true;
+      _notify({ status: snapshot.location ? 'tracking' : 'acquiring', error: null, errorKind: null });
+      try {
+        const id = await geo.watchPosition(
+          { enableHighAccuracy: true, timeout: 20_000, maximumAge: 5_000, minimumUpdateInterval: 5_000 },
+          (position, err) => {
+            if (err) _onError(err);
+            else if (position) _onFix(position);
+          }
+        );
+        // stop() may have been called while watchPosition was resolving.
+        if (!starting) {
+          await geo.clearWatch({ id }).catch(() => {});
+          return;
+        }
+        watchId = id;
+      } catch (err) {
+        _onError(err);
+      } finally {
+        starting = false;
+      }
+    },
+
+    /** Stop the watcher; keeps the last fix so history/overlay can still show it. */
+    async stop() {
+      starting = false;
+      const id = watchId;
+      watchId = null;
+      if (id !== null) {
+        try {
+          await geo.clearWatch({ id });
+        } catch {
+          // Watch already gone (e.g. plugin restarted) — nothing left to release.
+        }
       }
       _notify({ status: 'idle' });
     },
 
-    /** Stop + clear all stored location data (used on SOS cancel). */
-    reset() {
-      this.stop();
-      _notify({ status: 'idle', location: null, error: null, updateCount: 0 });
+    /** Stop + clear all stored location data. */
+    async reset() {
+      await this.stop();
+      _notify({ ...INITIAL });
+    },
+
+    /**
+     * One-shot, battery-friendly fix for the dashboard. Resolves to
+     * { location } or { errorKind, error } — never throws.
+     */
+    async getCurrent({ highAccuracy = false } = {}) {
+      try {
+        const position = await geo.getCurrentPosition({
+          enableHighAccuracy: highAccuracy,
+          timeout: 15_000,
+          maximumAge: 5 * 60_000,
+        });
+        const location = toLocation(position);
+        if (!location) return { errorKind: LocationErrorKind.unavailable, error: FRIENDLY.unavailable };
+        return { location };
+      } catch (err) {
+        const kind = classifyLocationError(err);
+        return { errorKind: kind, error: FRIENDLY[kind] };
+      }
+    },
+
+    /** Wait (up to timeoutMs) for the first real fix of the current tracking session. */
+    waitForFix(timeoutMs = 15_000) {
+      if (snapshot.location && snapshot.status === 'tracking') return Promise.resolve(snapshot.location);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => { unsub(); resolve(snapshot.location); }, timeoutMs);
+        const unsub = this.subscribe(() => {
+          if (snapshot.location && snapshot.status === 'tracking') {
+            clearTimeout(timer);
+            unsub();
+            resolve(snapshot.location);
+          }
+        });
+      });
     },
   };
 }

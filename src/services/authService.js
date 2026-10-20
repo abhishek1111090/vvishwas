@@ -1,31 +1,41 @@
 /**
- * authService.js — Local Phase 1 auth stub with Safari-compatible crypto
+ * authService.js — on-device accounts
  *
- * Safari crypto compatibility:
- *   crypto.subtle.digest() requires a secure context (HTTPS or localhost).
- *   On iOS Safari in production over HTTP this throws. We add a pure-JS
- *   SHA-256 fallback so auth never crashes regardless of context.
+ * WHAT THIS IS: VISHWAS has no authentication server yet, so accounts are
+ * DEVICE-LOCAL: an account created on one phone exists only on that phone.
+ * The UI says so. Every function keeps the same signature a server-backed
+ * version would have, so swapping in real API calls later doesn't touch UI.
  *
- * Uses generateUUID() from uuid.js instead of crypto.randomUUID() directly,
- * which crashes on iOS < 15.4.
+ * PASSWORD STORAGE: never plaintext. New passwords are stored as
+ * PBKDF2-HMAC-SHA256 (310,000 iterations, 16-byte random salt per user) via
+ * WebCrypto, which is available in the Capacitor WebView (secure context:
+ * https://localhost on Android, capacitor://localhost on iOS).
+ * Older accounts created with the previous unsalted SHA-256 scheme are
+ * verified once with that scheme and transparently upgraded to PBKDF2.
  *
- * PHASE 1 NOTE: passwords are hashed and stored locally — there is no server.
- * Every function is written so Phase 3 can swap in real API calls without
- * changing any UI code. TODO: Phase 3 markers are in comments.
+ * Passwords and hashes are never logged.
  */
 
-import { readJSON, writeJSON, remove } from '../utils/storage';
+import { readJSON, writeJSONOrThrow, remove } from '../utils/storage';
 import { STORAGE_KEYS } from '../utils/constants';
-import { isStrongEnoughPassword } from '../utils/validation';
+import { isStrongEnoughPassword, isValidEmail, isNonEmpty, normalizeEmail, LIMITS } from '../utils/validation';
 import { generateUUID } from '../utils/uuid';
+import { apiPost, isApiConfigured } from './apiClient';
 
 export class AuthError extends Error {}
 
 const ERRORS = {
   invalidCredentials: 'Incorrect email or password.',
-  emailAlreadyRegistered: 'An account with this email already exists.',
-  userNotFound: 'No account found for that email address.',
-  weakPassword: 'Password must be at least 8 characters.',
+  emailAlreadyRegistered: 'An account with this email already exists on this device.',
+  weakPassword: 'Password must be 8–128 characters.',
+  invalidEmail: 'Please enter a valid email address.',
+  invalidName: 'Please enter your name.',
+  cryptoUnavailable: 'Secure password hashing is unavailable on this device.',
+  storageFailed: 'Could not save your account on this device. Check free storage and try again.',
+  resetNotConfigured:
+    'Password reset by email needs the VISHWAS server, which is not set up in this build. Accounts are stored only on this device — if you forgot your password, create a new account.',
+  appleNotConfigured:
+    'Sign in with Apple is not configured in this build yet. Please continue with email.',
 };
 
 // ─── Pure-JS SHA-256 fallback ────────────────────────────────────────────────
@@ -88,6 +98,7 @@ function sha256Pure(message) {
     .join('');
 }
 
+/** Legacy (pre-PBKDF2) scheme — only used to verify and upgrade old accounts. */
 async function sha256Hex(text) {
   // Prefer native crypto.subtle (available on HTTPS + localhost)
   if (typeof crypto !== 'undefined' && crypto.subtle?.digest) {
@@ -105,87 +116,163 @@ async function sha256Hex(text) {
   return sha256Pure(text);
 }
 
+// ─── PBKDF2 ───────────────────────────────────────────────────────────────────
+
+const PBKDF2_ITERATIONS = 310_000;
+
+function toHex(bytes) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fromHex(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+async function pbkdf2Hex(password, saltBytes, iterations) {
+  if (typeof crypto === 'undefined' || !crypto.subtle?.importKey) throw new AuthError(ERRORS.cryptoUnavailable);
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations }, key, 256);
+  return toHex(new Uint8Array(bits));
+}
+
+export async function hashPassword(password, iterations = PBKDF2_ITERATIONS) {
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  return { algo: 'pbkdf2-sha256', iterations, salt: toHex(salt), hash: await pbkdf2Hex(password, salt, iterations) };
+}
+
+/** Comparison whose duration doesn't depend on where the strings differ. */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Returns { ok, needsUpgrade }. Supports PBKDF2 records and legacy SHA-256 hex strings. */
+export async function verifyPassword(password, record) {
+  if (record && typeof record === 'object' && record.algo === 'pbkdf2-sha256') {
+    const candidate = await pbkdf2Hex(password, fromHex(record.salt), record.iterations);
+    return { ok: safeEqual(candidate, record.hash), needsUpgrade: record.iterations < PBKDF2_ITERATIONS };
+  }
+  if (typeof record === 'string') {
+    return { ok: safeEqual(await sha256Hex(password), record), needsUpgrade: true };
+  }
+  return { ok: false, needsUpgrade: false };
+}
+
 // ─── Storage helpers ─────────────────────────────────────────────────────────
 
 function loadLocalUsers() {
-  return readJSON(STORAGE_KEYS.localUsers, []);
+  const users = readJSON(STORAGE_KEYS.localUsers, []);
+  return Array.isArray(users) ? users : [];
 }
-function saveLocalUsers(users) {
-  writeJSON(STORAGE_KEYS.localUsers, users);
+
+function persist(key, value) {
+  try {
+    writeJSONOrThrow(key, value);
+  } catch {
+    throw new AuthError(ERRORS.storageFailed);
+  }
+}
+
+function publicUser(user) {
+  const { id, fullName, email, authProvider, createdAt } = user;
+  return { id, fullName, email, authProvider, createdAt };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export const authService = {
+  /** Device-local accounts: true until a VISHWAS auth server is integrated. */
+  isLocalOnly: true,
+
   restoreSession() {
     const userId = readJSON(STORAGE_KEYS.sessionUserId, null);
     if (!userId) return null;
-    return loadLocalUsers().find((u) => u.id === userId) ?? null;
+    const user = loadLocalUsers().find((u) => u.id === userId);
+    if (!user) {
+      // Session points at a user that no longer exists — clear it.
+      remove(STORAGE_KEYS.sessionUserId);
+      return null;
+    }
+    return publicUser(user);
   },
 
-  /** Apple Sign In placeholder — see authService.js comments for real-SDK notes */
-  async signInWithApplePlaceholder() {
-    const PLACEHOLDER_ID = 'apple_placeholder_user';
-    const users = loadLocalUsers();
-    const existing = users.find((u) => u.id === PLACEHOLDER_ID);
-    if (existing) {
-      writeJSON(STORAGE_KEYS.sessionUserId, existing.id);
-      return existing;
-    }
-    const newUser = {
-      id: PLACEHOLDER_ID,
-      fullName: 'VISHWAS User',
-      email: `${PLACEHOLDER_ID}@privaterelay.appleid.com`,
-      authProvider: 'apple',
-      createdAt: new Date().toISOString(),
-    };
-    saveLocalUsers([...users, newUser]);
-    writeJSON(STORAGE_KEYS.sessionUserId, newUser.id);
-    return newUser;
+  /**
+   * Sign in with Apple needs an Apple Developer team, the capability on the
+   * App ID and a native plugin. None are configured, so this refuses
+   * instead of creating an unauthenticated placeholder session.
+   */
+  async signInWithApple() {
+    throw new AuthError(ERRORS.appleNotConfigured);
   },
 
   async signUp({ fullName, email, password }) {
+    const name = (fullName ?? '').trim();
+    if (!isNonEmpty(name) || name.length > LIMITS.nameMax) throw new AuthError(ERRORS.invalidName);
+    if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
     if (!isStrongEnoughPassword(password)) throw new AuthError(ERRORS.weakPassword);
 
     const users = loadLocalUsers();
-    const normalizedEmail = email.toLowerCase();
-    if (users.some((u) => u.email.toLowerCase() === normalizedEmail)) {
+    const normalizedEmail = normalizeEmail(email);
+    if (users.some((u) => normalizeEmail(u.email) === normalizedEmail)) {
       throw new AuthError(ERRORS.emailAlreadyRegistered);
     }
 
     const newUser = {
-      id: generateUUID(), // uses Safari-safe UUID
-      fullName,
-      email,
+      id: generateUUID(),
+      fullName: name,
+      email: normalizedEmail,
       authProvider: 'email',
       createdAt: new Date().toISOString(),
     };
 
-    const hash = await sha256Hex(password); // uses fallback if crypto.subtle unavailable
-    saveLocalUsers([...users, newUser]);
-    writeJSON(`${STORAGE_KEYS.passwordPrefix}${newUser.id}`, hash);
-    writeJSON(STORAGE_KEYS.sessionUserId, newUser.id);
-    return newUser;
+    const record = await hashPassword(password);
+    persist(`${STORAGE_KEYS.passwordPrefix}${newUser.id}`, record);
+    persist(STORAGE_KEYS.localUsers, [...users, newUser]);
+    persist(STORAGE_KEYS.sessionUserId, newUser.id);
+    return publicUser(newUser);
   },
 
   async signIn({ email, password }) {
-    const normalizedEmail = email.toLowerCase();
-    const user = loadLocalUsers().find((u) => u.email.toLowerCase() === normalizedEmail);
-    if (!user) throw new AuthError(ERRORS.userNotFound);
+    if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
+    const normalizedEmail = normalizeEmail(email);
+    const user = loadLocalUsers().find((u) => normalizeEmail(u.email) === normalizedEmail);
+    // Same message for unknown email and wrong password — don't reveal which accounts exist.
+    if (!user) throw new AuthError(ERRORS.invalidCredentials);
 
-    const storedHash = readJSON(`${STORAGE_KEYS.passwordPrefix}${user.id}`, null);
-    const candidateHash = await sha256Hex(password);
-    if (storedHash !== candidateHash) throw new AuthError(ERRORS.invalidCredentials);
+    const record = readJSON(`${STORAGE_KEYS.passwordPrefix}${user.id}`, null);
+    const { ok, needsUpgrade } = await verifyPassword(password ?? '', record);
+    if (!ok) throw new AuthError(ERRORS.invalidCredentials);
 
-    writeJSON(STORAGE_KEYS.sessionUserId, user.id);
-    return user;
+    if (needsUpgrade) {
+      try {
+        writeJSONOrThrow(`${STORAGE_KEYS.passwordPrefix}${user.id}`, await hashPassword(password));
+      } catch {
+        // Upgrade is best effort — the legacy hash still works and is retried next sign-in.
+      }
+    }
+
+    persist(STORAGE_KEYS.sessionUserId, user.id);
+    return publicUser(user);
   },
 
+  /** Requires the VISHWAS server; reports "not configured" honestly otherwise. */
   async sendPasswordReset({ email }) {
-    const normalizedEmail = email.toLowerCase();
-    const exists = loadLocalUsers().some((u) => u.email.toLowerCase() === normalizedEmail);
-    if (!exists) throw new AuthError(ERRORS.userNotFound);
-    // TODO: Phase 3 — POST /auth/forgot-password
+    if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
+    if (!isApiConfigured()) throw new AuthError(ERRORS.resetNotConfigured);
+    try {
+      await apiPost('/auth/forgot-password', { email: normalizeEmail(email) });
+    } catch (err) {
+      throw new AuthError(err?.message ?? 'Could not request a password reset.');
+    }
+  },
+
+  canResetPassword() {
+    return isApiConfigured();
   },
 
   signOut() {

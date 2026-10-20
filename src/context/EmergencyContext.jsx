@@ -1,183 +1,110 @@
 import {
   createContext, useContext, useSyncExternalStore,
-  useMemo, useCallback, useRef, useEffect,
+  useMemo, useCallback, useEffect, useRef,
 } from 'react';
+import { App as CapApp } from '@capacitor/app';
 import { emergencyManager } from '../services/emergencyManager';
+import { emergencyController } from '../services/emergencyController';
 import { recordingService }  from '../services/recordingService';
 import { locationService }   from '../services/locationService';
-import { haptics }           from '../services/hapticService';
+import { useContacts } from './ContactsContext';
+import { useAuth } from './AuthContext';
+import { isNative } from '../platform/platform';
 
 /**
- * EmergencyContext — orchestrates the SOS session, recording, and GPS.
+ * EmergencyContext — React bridge to the SOS system.
  *
  * Architecture:
- *   emergencyManager  — pure session state machine (active/log/isActive)
- *   recordingService  — audio + video MediaRecorder
- *   locationService   — GPS watchPosition
+ *   emergencyManager    — session state machine + persisted history
+ *   emergencyController — orchestrates recording, GPS, alerts, notification
+ *   recordingService    — audio + video MediaRecorder → app-private files
+ *   locationService     — @capacitor/geolocation watch
  *
- * All three expose the same pub-sub interface (subscribe / getSnapshot) so
- * they can be consumed with useSyncExternalStore, giving the same "any
- * mutation triggers a re-render" behaviour SwiftUI's @Observable provided.
- *
- * WHY orchestration lives here (not in emergencyManager):
- *   iOS Safari requires getUserMedia to be called within a user-gesture call
- *   stack. trigger() is called directly from onClick handlers, so calling
- *   recordingService.startAudio/Video() from here — synchronously after
- *   emergencyManager.trigger() — keeps them in the same user-gesture context.
- *   Moving this into a plain JS service would break iOS camera/mic access.
+ * All expose subscribe/getSnapshot so React re-renders on any change, the
+ * same behaviour SwiftUI's @Observable provided. Because the state lives
+ * in those singletons (not in component state) an emergency survives
+ * navigation and remounts, and the manager persists it across restarts.
  */
 
 const EmergencyContext = createContext(null);
 
 export function EmergencyProvider({ children }) {
-  // Subscribe to all three services with stable snapshots
-  const emergencySnap = useSyncExternalStore(
-    emergencyManager.subscribe,
-    emergencyManager.getSnapshot
-  );
-  const recordingSnap = useSyncExternalStore(
-    recordingService.subscribe,
-    recordingService.getSnapshot
-  );
-  const locationSnap = useSyncExternalStore(
-    locationService.subscribe,
-    locationService.getSnapshot
-  );
+  const { contacts } = useContacts();
+  const { currentUser } = useAuth();
 
-  // Track whether services are currently active so resolve/cancel
-  // know to clean them up, even if the snapshot flickers.
-  const servicesRunningRef = useRef(false);
+  const emergencySnap = useSyncExternalStore(emergencyManager.subscribe, emergencyManager.getSnapshot);
+  const recordingSnap = useSyncExternalStore(recordingService.subscribe, recordingService.getSnapshot);
+  const locationSnap = useSyncExternalStore(locationService.subscribe, locationService.getSnapshot);
 
-  // Log the first GPS fix to the emergency activity log so the user
-  // sees real coordinates appear in the EmergencyActiveOverlay.
-  const firstLocationLoggedRef = useRef(false);
-
+  // Alerts always go to the CURRENT contact list and user.
   useEffect(() => {
-    if (!emergencySnap.isActive) {
-      firstLocationLoggedRef.current = false;
-      return;
-    }
-    if (locationSnap.location && !firstLocationLoggedRef.current) {
-      firstLocationLoggedRef.current = true;
-      const { latitude, longitude, accuracy } = locationSnap.location;
-      emergencyManager.appendLog(
-        `📍 Location: ${latitude.toFixed(5)}, ${longitude.toFixed(5)} (±${accuracy}m)`
-      );
-    }
-    if (locationSnap.error) {
-      emergencyManager.appendLog(`📍 GPS: ${locationSnap.error}`);
-    }
-  }, [locationSnap, emergencySnap.isActive]);
+    emergencyController.setContext({ contacts, user: currentUser });
+  }, [contacts, currentUser]);
 
-  // Log audio recording status changes
-  const prevAudioStatus = useRef('idle');
+  // Restore a session that was active when the app was killed (once).
+  const restoredRef = useRef(false);
   useEffect(() => {
-    if (!emergencySnap.isActive) return;
-    const s = recordingSnap.audioStatus;
-    if (s === prevAudioStatus.current) return;
-    prevAudioStatus.current = s;
-    if (s === 'recording') emergencyManager.appendLog('🎙 Audio recording active');
-    if (s === 'stopped')   emergencyManager.appendLog('🎙 Audio recording saved');
-    if (s === 'error')     emergencyManager.appendLog(`🎙 Audio error: ${recordingSnap.audioError}`);
-  }, [recordingSnap.audioStatus, recordingSnap.audioError, emergencySnap.isActive]);
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    emergencyController.restoreActiveSession();
+  }, []);
 
-  // Log video recording status changes
-  const prevVideoStatus = useRef('idle');
+  // Background / foreground transitions during an emergency.
   useEffect(() => {
-    if (!emergencySnap.isActive) return;
-    const s = recordingSnap.videoStatus;
-    if (s === prevVideoStatus.current) return;
-    prevVideoStatus.current = s;
-    if (s === 'recording') emergencyManager.appendLog('📹 Video recording active');
-    if (s === 'stopped')   emergencyManager.appendLog('📹 Video recording saved');
-    if (s === 'error')     emergencyManager.appendLog(`📹 Video unavailable: ${recordingSnap.videoError}`);
-  }, [recordingSnap.videoStatus, recordingSnap.videoError, emergencySnap.isActive]);
+    if (!isNative()) return undefined;
+    const handle = CapApp.addListener('appStateChange', ({ isActive }) => {
+      emergencyController.onAppStateChange(isActive);
+    });
+    return () => {
+      Promise.resolve(handle).then((h) => h.remove()).catch(() => {});
+    };
+  }, []);
 
   /**
-   * THE single SOS trigger. Called from:
-   *   • SOSConfirmModal "Yes — Send Alert" button  (manual, with confirmation)
-   *   • useTripleTap callback in HomePage          (direct, no confirmation)
-   *
-   * Must remain synchronous up to the point of calling getUserMedia so iOS
-   * Safari's user-gesture requirement is satisfied.
+   * THE single SOS trigger for UI code. Called from:
+   *   • SOSConfirmModal "Yes — Send Alert"  → trigger('button')
+   *   • useTripleTap in AppShell            → trigger('tripleTap')
+   * Both end in emergencyManager.trigger(source).
    */
-  const trigger = useCallback((source) => {
-    haptics.emergencyTrigger();
-
-    // 1. Update session state machine (synchronous)
-    emergencyManager.trigger(source);
-
-    // 2. Start GPS (synchronous — watchPosition doesn't require user gesture)
-    locationService.start();
-    emergencyManager.appendLog('📍 GPS tracking started');
-
-    // 3. Start audio recording (async but MUST be called in same user-gesture
-    //    stack. Do NOT await — let it proceed while UI updates.)
-    emergencyManager.appendLog('🎙 Requesting microphone…');
-    recordingService.startAudio(); // Promise — result logged via useEffect above
-
-    // 4. Start video recording (same user-gesture requirement)
-    emergencyManager.appendLog('📹 Requesting camera…');
-    recordingService.startVideo(); // Promise — result logged via useEffect above
-
-    // 5. TODO (Phase 3): alertService.notifyContacts(session)
-    emergencyManager.appendLog('📡 Contacts will be notified (Phase 3)');
-
-    servicesRunningRef.current = true;
-  }, []);
-
-  /** "I'm Safe" — stop recording gracefully (onstop fires, creates download URL) */
-  const resolve = useCallback(() => {
-    if (servicesRunningRef.current) {
-      recordingService.stopAll();   // triggers onstop → creates blob URLs
-      locationService.stop();
-      servicesRunningRef.current = false;
-    }
-    emergencyManager.resolve();
-  }, []);
-
-  /** "False Alarm" — discard recordings, reset everything */
-  const cancel = useCallback(() => {
-    if (servicesRunningRef.current) {
-      recordingService.reset();   // revokes blob URLs + stops streams
-      locationService.reset();
-      servicesRunningRef.current = false;
-    }
-    // Reset status refs so next session starts clean
-    prevAudioStatus.current = 'idle';
-    prevVideoStatus.current = 'idle';
-    emergencyManager.cancel();
-  }, []);
+  const trigger = useCallback((source) => emergencyController.startEmergency(source), []);
+  const resolve = useCallback(() => emergencyController.endEmergency('resolve'), []);
+  const cancel = useCallback(() => emergencyController.endEmergency('cancel'), []);
+  const openSmsComposer = useCallback(() => emergencyController.openSmsComposer(), []);
+  const restartRecording = useCallback(() => emergencyController.restartRecording(), []);
+  const deleteHistoryItem = useCallback((id) => emergencyManager.deleteHistoryItem(id), []);
 
   const value = useMemo(
     () => ({
       // Session state
       isActive:      emergencySnap.isActive,
+      isEnding:      emergencySnap.activeSession?.status === 'ending',
       activeSession: emergencySnap.activeSession,
       log:           emergencySnap.log,
+      history:       emergencySnap.history,
+      persistFailed: !!emergencySnap.persistFailed,
+      alerts:        emergencySnap.activeSession?.alerts ?? null,
 
       // Real-time location
-      location:      locationSnap.location,
+      location:       locationSnap.location,
       locationStatus: locationSnap.status,
       locationError:  locationSnap.error,
 
       // Recording state
-      audioStatus: recordingSnap.audioStatus,
-      videoStatus: recordingSnap.videoStatus,
-      audioUrl:    recordingSnap.audioUrl,
-      videoUrl:    recordingSnap.videoUrl,
-      audioMime:   recordingSnap.audioMime,
-      videoMime:   recordingSnap.videoMime,
-      audioError:  recordingSnap.audioError,
-      videoError:  recordingSnap.videoError,
+      audio: recordingSnap.audio,
+      video: recordingSnap.video,
+      audioStatus: recordingSnap.audio.status,
+      videoStatus: recordingSnap.video.status,
       recordingSupported: recordingSnap.isSupported,
 
       // Actions
       trigger,
       resolve,
       cancel,
+      openSmsComposer,
+      restartRecording,
+      deleteHistoryItem,
     }),
-    [emergencySnap, locationSnap, recordingSnap, trigger, resolve, cancel]
+    [emergencySnap, locationSnap, recordingSnap, trigger, resolve, cancel, openSmsComposer, restartRecording, deleteHistoryItem]
   );
 
   return <EmergencyContext.Provider value={value}>{children}</EmergencyContext.Provider>;

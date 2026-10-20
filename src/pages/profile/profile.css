@@ -294,3 +294,23 @@
   font-size: 0.6875rem;
   color: var(--color-text-secondary);
 }
+
+.v-profile-history-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: var(--radius-medium, 16px);
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.v-profile-history-link > span {
+  flex: 1;
+}

@@ -1,64 +1,50 @@
-import { useState, useEffect } from 'react';
-import { Wifi, Battery } from 'lucide-react';
 import { useEmergency } from '../context/EmergencyContext';
-import { useBattery } from '../utils/useBattery';
 import { useTripleTap } from '../utils/useTripleTap';
 import { BottomNav } from './BottomNav';
 import { EmergencyActiveOverlay } from '../pages/sos/EmergencyActiveOverlay';
 import './AppShell.css';
 
+// AppShell.jsx
+// ------------
+// Frame for every signed-in screen: scrollable viewport, bottom tab bar,
+// global triple-tap SOS and the emergency overlay.
+//
+// The old simulated phone status bar (fake clock, fake signal bars and a
+// "100%" battery shown even when the real level was unknown) was removed:
+// in the native app the real OS status bar is visible above the WebView,
+// so the shell now just reserves the safe-area inset for it.
+
+/** Taps while typing in a field shouldn't count toward triple-tap SOS. */
+function isTextEntryTarget(target) {
+  const el = target instanceof Element ? target : null;
+  return !!el?.closest('input, textarea, select, [contenteditable="true"]');
+}
+
 export function AppShell({ children, showBottomNav = true }) {
   const emergency = useEmergency();
-  const battery = useBattery();
-  const [currentTime, setCurrentTime] = useState('');
 
-  // Global Triple-Tap SOS: Active across all shell screens
-  const globalTripleTapHandler = useTripleTap(() => {
+  // Global Triple-Tap SOS — the only triple-tap handler in the app, so one
+  // gesture can never fire two triggers.
+  const tripleTapHandler = useTripleTap(() => {
+    if (emergency.isActive) return; // overlay is up; nothing to trigger
     emergency.trigger('tripleTap');
   });
 
-  // Simulated live clock for the status bar
-  useEffect(() => {
-    function updateClock() {
-      const now = new Date();
-      const hours = now.getHours();
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      setCurrentTime(`${hours}:${minutes}`);
-    }
-    updateClock();
-    const interval = setInterval(updateClock, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const safeBatteryPercent = battery.level !== null
-    ? `${Math.round(battery.level * 100)}%`
-    : '100%';
+  function handleClick(event) {
+    if (isTextEntryTarget(event.target)) return;
+    tripleTapHandler(event);
+  }
 
   return (
-    <div className="v-shell" onClick={globalTripleTapHandler}>
-      {/* Mobile Top Status Bar Header (Visible in mobile app frame) */}
-      <header className="v-shell__status-bar" aria-hidden="true">
-        <span className="v-shell__clock">{currentTime || '9:41'}</span>
-        <div className="v-shell__notch-pill" />
-        <div className="v-shell__status-icons">
-          <span className="v-shell__signal">●●●●</span>
-          <Wifi size={13} strokeWidth={2.4} />
-          <div className="v-shell__battery-wrap">
-            <span className="v-shell__battery-text">{safeBatteryPercent}</span>
-            <Battery size={15} strokeWidth={2.2} />
-          </div>
-        </div>
-      </header>
+    <div className="v-shell" onClick={handleClick}>
+      <div className="v-shell__safe-top" aria-hidden="true" />
 
-      {/* Main App Content Viewport */}
       <main className="v-shell__viewport">
         {children}
       </main>
 
-      {/* Persistent Mobile Bottom Navigation Bar */}
       {showBottomNav && !emergency.isActive && <BottomNav />}
 
-      {/* Global Emergency Active Overlay (Always top-level when SOS is engaged) */}
       {emergency.isActive && <EmergencyActiveOverlay />}
     </div>
   );

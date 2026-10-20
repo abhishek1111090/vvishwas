@@ -180,3 +180,47 @@
 .v-recent-activity__message {
   font-size: 0.8125rem;
 }
+
+/* Tappable status item (retry location) */
+.v-status-item--button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.v-safety-status__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-warning);
+}
+
+/* Recent activity — emergency history summary */
+.v-recent-activity__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.v-recent-activity__link {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 8px 0 8px 12px;
+  cursor: pointer;
+}
+
+.v-recent-activity__status {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  flex-shrink: 0;
+}

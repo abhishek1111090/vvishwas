@@ -2,9 +2,10 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
   justify-content: space-between;
-  padding: var(--space-xxl) var(--space-lg) var(--space-lg);
+  padding: calc(var(--space-xxl) + var(--safe-area-top)) var(--space-lg) calc(var(--space-lg) + var(--safe-area-bottom));
 }
 
 .v-welcome__brand {
@@ -124,4 +125,10 @@
 .v-forgot-password__success {
   align-items: center;
   text-align: center;
+}
+
+.v-welcome__note {
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
 }

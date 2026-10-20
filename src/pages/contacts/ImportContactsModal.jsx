@@ -31,15 +31,20 @@ export function ImportContactsModal({ isOpen, onClose, onImport }) {
     try {
       const [picked] = await navigator.contacts.select(['name', 'tel'], { multiple: false });
       if (picked) {
-        onImport({
+        const result = onImport({
           name: picked.name?.[0] ?? 'Imported Contact',
           phoneNumber: picked.tel?.[0] ?? '',
         });
+        if (result && !result.ok) {
+          setError(result.error);
+          return;
+        }
         onClose();
       }
-    } catch {
-      // User cancelled the picker — not a real error, mirrors the Swift
-      // delegate simply not firing `didSelect` on cancel.
+    } catch (err) {
+      // AbortError = user cancelled the picker — not a real error, mirrors
+      // the Swift delegate simply not firing `didSelect` on cancel.
+      if (err?.name !== 'AbortError') setError(err?.message ?? 'Could not read the contact.');
     } finally {
       setIsPicking(false);
     }

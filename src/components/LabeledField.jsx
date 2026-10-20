@@ -13,6 +13,7 @@ export function LabeledField({
   type = 'text',
   autoComplete,
   placeholder = '',
+  error = null,
   ...rest
 }) {
   return (
@@ -25,10 +26,13 @@ export function LabeledField({
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         placeholder={placeholder}
-        autoCapitalize={type === 'email' ? 'none' : 'words'}
-        autoCorrect={type === 'email' ? 'off' : 'on'}
+        autoCapitalize={type === 'text' ? 'words' : 'none'}
+        autoCorrect={type === 'text' ? 'on' : 'off'}
+        spellCheck={type === 'text'}
+        aria-invalid={error ? true : undefined}
         {...rest}
       />
+      {error && <span className="v-field__error" role="alert">{error}</span>}
     </label>
   );
 }

@@ -8,4 +8,16 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
+  build: {
+    // Capacitor serves dist/ from inside the app; no source maps in the
+    // shipped bundle.
+    outDir: 'dist',
+    sourcemap: false,
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+    include: ['src/**/*.test.{js,jsx}'],
+    restoreMocks: true,
+  },
 })

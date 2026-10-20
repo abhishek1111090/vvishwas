@@ -32,10 +32,10 @@
   --shadow-color:               rgba(0, 0, 0, 0.08);
 
   /* Mobile App Shell & Navigation Tokens */
-  --safe-area-top:    env(safe-area-inset-top, 0px);
-  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-area-left:   env(safe-area-inset-left, 0px);
-  --safe-area-right:  env(safe-area-inset-right, 0px);
+  --safe-area-top:    var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-area-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-area-left:   var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --safe-area-right:  var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
   --bottom-nav-height: 64px;
   --header-height:     56px;
   --touch-target-min:  44px;
@@ -190,4 +190,28 @@ a {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Native app: always full-screen, even on tablets / landscape. */
+html.is-native #root {
+  max-width: 100%;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  border-radius: 0;
+  box-shadow: none;
+  border: none;
+}
+
+html.is-native,
+html.is-native body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html.is-native input,
+html.is-native textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }

@@ -344,3 +344,25 @@
 .v-import-contacts > .v-btn {
   max-width: 220px;
 }
+
+.v-contacts-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin: 0 var(--space-md) var(--space-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: rgba(224, 32, 58, 0.1);
+  color: var(--color-emergency);
+  font-size: 0.8125rem;
+}
+
+.v-contacts-error button {
+  background: none;
+  border: none;
+  color: inherit;
+  min-width: 32px;
+  min-height: 32px;
+  cursor: pointer;
+}

@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useContacts } from '../../context/ContactsContext';
-import { useTripleTap } from '../../utils/useTripleTap';
 import { useBattery } from '../../utils/useBattery';
-import { PermissionStatus } from '../../services/permissionsService';
+import { useLocationStatus } from '../../utils/useLocationStatus';
 import { SafetyStatusCard } from './SafetyStatusCard';
 import { QuickActionsGrid } from './QuickActionsGrid';
 import { RecentActivityList } from './RecentActivityList';
@@ -19,21 +18,17 @@ export function HomePage() {
   const permissions = usePermissions();
   const { contacts } = useContacts();
   const battery = useBattery();
+  const locationStatus = useLocationStatus(permissions.locationStatus);
 
   const [showSOSConfirm, setShowSOSConfirm] = useState(false);
 
-  // Triple-tap bypasses confirmation and triggers immediately.
-  // Canonical trigger: emergencyManager.trigger('tripleTap') via EmergencyContext
-  const tripleTapHandler = useTripleTap(() => {
-    emergency.trigger('tripleTap');
-  });
+  // Triple-tap is handled once, globally, by AppShell (see AppShell.jsx) —
+  // a second handler here used to fire two triggers for one gesture.
 
-  const isProtected =
-    contacts.length > 0 &&
-    permissions.locationStatus === PermissionStatus.granted;
+  const isProtected = contacts.length > 0 && locationStatus.state === 'ok';
 
   return (
-    <div className="v-home" onClick={tripleTapHandler}>
+    <div className="v-home">
       {/* Mobile App Header */}
       <header className="v-home__topbar">
         <div className="v-home__brand">
@@ -55,7 +50,9 @@ export function HomePage() {
       <div className="v-home__content">
         <SafetyStatusCard
           contactCount={contacts.length}
-          locationGranted={permissions.locationStatus === PermissionStatus.granted}
+          locationState={locationStatus.state}
+          locationError={locationStatus.error}
+          onRecheckLocation={locationStatus.recheck}
           batteryLevel={battery.level}
           isCharging={battery.charging}
           audioStatus={emergency.audioStatus}
@@ -66,7 +63,7 @@ export function HomePage() {
           <SOSButton
             isActive={emergency.isActive}
             onPress={() => {
-              if (emergency.isActive) return; // already active
+              if (emergency.isActive) return; // overlay already showing
               setShowSOSConfirm(true);
             }}
           />
@@ -76,12 +73,12 @@ export function HomePage() {
         </div>
 
         <QuickActionsGrid />
-        <RecentActivityList log={emergency.log} />
+        <RecentActivityList history={emergency.history} />
       </div>
 
       {/* Manual button — shows confirmation first, then triggers canonically */}
       <SOSConfirmModal
-        isOpen={showSOSConfirm}
+        isOpen={showSOSConfirm && !emergency.isActive}
         onClose={() => setShowSOSConfirm(false)}
         contactCount={contacts.length}
         onConfirm={() => emergency.trigger('button')}
@@ -89,4 +86,3 @@ export function HomePage() {
     </div>
   );
 }
-
