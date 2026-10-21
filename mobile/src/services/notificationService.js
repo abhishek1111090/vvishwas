@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { loadNotifications } from '../utils/optionalModules';
 
 /**
  * notificationService.js — "Emergency active" status notification
@@ -12,7 +12,7 @@ import * as Notifications from 'expo-notifications';
 const CHANNEL_ID = 'vishwas-emergency';
 let channelReady = false;
 
-export function createNotificationService({ notifications = Notifications, platform = Platform.OS } = {}) {
+export function createNotificationService({ notifications = loadNotifications(), platform = Platform.OS } = {}) {
   let currentId = null;
   let handlerSet = false;
 
@@ -42,6 +42,7 @@ export function createNotificationService({ notifications = Notifications, platf
 
   return {
     async showEmergencyActive(session) {
+      if (!notifications) return { shown: false, reason: 'unavailable' };
       try {
         const perm = await notifications.getPermissionsAsync();
         if (!perm.granted) return { shown: false, reason: 'permission' };
@@ -63,7 +64,7 @@ export function createNotificationService({ notifications = Notifications, platf
     },
 
     async clearEmergencyActive() {
-      if (!currentId) return;
+      if (!currentId || !notifications) return;
       const id = currentId;
       currentId = null;
       try {

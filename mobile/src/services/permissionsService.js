@@ -2,7 +2,7 @@ import { Linking } from 'react-native';
 import * as Location from 'expo-location';
 import { Camera } from 'expo-camera';
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio';
-import * as Notifications from 'expo-notifications';
+import { loadNotifications } from '../utils/optionalModules';
 
 /**
  * permissionsService.js — real OS permission state via Expo modules
@@ -46,20 +46,20 @@ export function createPermissionsService({
   location = Location,
   camera = Camera,
   recording = { getRecordingPermissionsAsync, requestRecordingPermissionsAsync },
-  notifications = Notifications,
+  notifications = loadNotifications(),
   linking = Linking,
 } = {}) {
   const check = {
     location: () => safe(() => location.getForegroundPermissionsAsync()),
     camera: () => safe(() => camera.getCameraPermissionsAsync()),
     microphone: () => safe(() => recording.getRecordingPermissionsAsync()),
-    notifications: () => safe(() => notifications.getPermissionsAsync()),
+    notifications: () => (notifications ? safe(() => notifications.getPermissionsAsync()) : Promise.resolve(PermissionStatus.unavailable)),
   };
   const request = {
     location: () => safe(() => location.requestForegroundPermissionsAsync()),
     camera: () => safe(() => camera.requestCameraPermissionsAsync()),
     microphone: () => safe(() => recording.requestRecordingPermissionsAsync()),
-    notifications: () => safe(() => notifications.requestPermissionsAsync()),
+    notifications: () => (notifications ? safe(() => notifications.requestPermissionsAsync()) : Promise.resolve(PermissionStatus.unavailable)),
   };
 
   return {
