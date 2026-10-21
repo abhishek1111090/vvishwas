@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import Animated, {
-  createAnimatedComponent,
   useSharedValue,
   useAnimatedStyle,
   useAnimatedProps,
@@ -33,7 +32,7 @@ const STROKE = 6;
 const R = (RING - STROKE) / 2;
 const C = 2 * Math.PI * R;
 
-const AnimatedCircle = createAnimatedComponent(Circle);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 function BreathRing({ delay, color }) {
   const v = useSharedValue(0);

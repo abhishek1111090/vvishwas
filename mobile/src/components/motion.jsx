@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Pressable, View, StyleSheet } from 'react-native';
 import Animated, {
-  createAnimatedComponent,
   FadeInDown,
   useSharedValue,
   useAnimatedStyle,
@@ -20,8 +19,8 @@ import Svg, { Circle } from 'react-native-svg';
 // motion only: things enter softly, pressed things give, live things
 // breathe. Reanimated honours the OS "Reduce motion" setting by default.
 
-const AnimatedPressableBase = createAnimatedComponent(Pressable);
-const AnimatedCircle = createAnimatedComponent(Circle);
+const AnimatedPressableBase = Animated.createAnimatedComponent(Pressable);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 /** Content that fades up into place; `index` staggers siblings. */
 export function Enter({ index = 0, children, style }) {
