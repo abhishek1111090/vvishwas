@@ -8,7 +8,8 @@ import { ChevronLeft, ChevronDown, ChevronUp, MapPin, Trash2, History as History
 import { useEmergency } from '../context/EmergencyContext';
 import { useAuth } from '../context/AuthContext';
 import { mapsUrl } from '../services/locationService';
-import { ALERT_STATUS_LABEL } from '../services/alertService';
+import { ALERT_STATUS_LABEL, describeFloor } from '../services/alertService';
+import { OSM_ATTRIBUTION } from '../services/geoService';
 import { TRIGGER_SOURCE, SESSION_STATUS } from '../utils/constants';
 import { formatDateTime, formatStandardTime, formatDuration } from '../utils/formatDate';
 import { Card, Badge, VText } from '../components/ui';
@@ -151,6 +152,13 @@ function SessionCard({ session, onDelete }) {
           ) : (
             <VText variant="caption" secondary>No location fix was obtained.</VText>
           )}
+          {session.address?.label ? (
+            <VText variant="subheadline">{session.address.label}</VText>
+          ) : null}
+          {describeFloor(session.floor) ? (
+            <VText variant="caption" secondary>Floor: {describeFloor(session.floor)}</VText>
+          ) : null}
+          {session.address?.source === 'openstreetmap' ? <VText variant="caption" tertiary>Address {OSM_ATTRIBUTION}</VText> : null}
 
           <VText variant="overline" secondary style={styles.sectionTitle}>Evidence</VText>
           {session.recordings ? (

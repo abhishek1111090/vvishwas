@@ -6,6 +6,8 @@ import { alertService as defaultAlerts, buildAlertPayload, AlertStatus, ALERT_ST
 import { notificationService as defaultNotifications } from './notificationService';
 import { permissionsService as defaultPermissions, PermissionStatus } from './permissionsService';
 import { haptics as defaultHaptics } from './hapticService';
+import { geoService as defaultGeo } from './geoService';
+import { floorService as defaultFloor, floorLabel } from './floorService';
 
 /**
  * emergencyController.js — orchestrates one SOS session
@@ -43,6 +45,8 @@ export function createEmergencyController({
   notifications = defaultNotifications,
   permissions = defaultPermissions,
   haptics = defaultHaptics,
+  geo = defaultGeo,
+  floors = defaultFloor,
   platform = Platform.OS,
   waitForFixMs = ALERT_WAIT_FOR_FIX_MS,
 } = {}) {
@@ -55,6 +59,59 @@ export function createEmergencyController({
   const cameraListeners = new Set();
 
   const log = (message, level) => manager.appendLog(message, level);
+
+  // ─── Address (OpenStreetMap) + floor (barometer) ─────────────────────────
+  let addressFor = null;      // location the current address was looked up for
+  let addressLookupAt = 0;
+  let addressInFlight = null;
+
+  const metres = (a, b) => {
+    const R = 6371000;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLon = toRad(b.longitude - a.longitude);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  function lookupAddress(sessionId, loc) {
+    if (addressInFlight) return addressInFlight;
+    addressLookupAt = Date.now();
+    addressInFlight = geo.reverseGeocode(loc).then((res) => {
+      addressInFlight = null;
+      if (activeId() !== sessionId) return;
+      if (res.address) {
+        const prev = manager.getSnapshot().activeSession?.address?.label;
+        addressFor = loc;
+        manager.update({ address: res.address });
+        if (res.address.label !== prev) {
+          log(`🏠 Address${res.address.source === 'openstreetmap' ? ' (OpenStreetMap)' : ''}: ${res.address.label}`);
+        }
+      } else if (!manager.getSnapshot().activeSession?.address) {
+        log(`🏠 Address not available: ${res.error}`, 'warning');
+      }
+    });
+    return addressInFlight;
+  }
+
+  /** Re-look-up the address only when the person has moved noticeably. */
+  function maybeRefreshAddress(sessionId, loc) {
+    const moved = !addressFor || metres(addressFor, loc) > 40;
+    if (moved && Date.now() - addressLookupAt > 30_000) lookupAddress(sessionId, loc);
+  }
+
+  async function estimateFloor(sessionId, loc) {
+    const res = await floors.estimate(loc);
+    if (activeId() !== sessionId) return;
+    const current = manager.getSnapshot().activeSession?.floor ?? {};
+    if (res.estimate) {
+      manager.update({ floor: { ...current, estimate: res.estimate, unavailable: null } });
+      log(`🏢 Estimated ${floorLabel(res.estimate.floor)} (barometer, ±${res.estimate.uncertainty}). Confirm the floor on this screen for accuracy.`);
+    } else {
+      manager.update({ floor: { ...current, unavailable: res.unavailable } });
+      log(`🏢 Floor not detected automatically: ${res.unavailable}. Set it on this screen.`, 'warning');
+    }
+  }
   const activeId = () => manager.getSnapshot().activeSession?.id ?? null;
 
   function setCameraAllowed(value) {
@@ -64,6 +121,9 @@ export function createEmergencyController({
 
   function attachWatchers(sessionId) {
     detachWatchers();
+    addressFor = null;
+    addressLookupAt = 0;
+    addressInFlight = null;
 
     let lastLocKey = null;
     let firstFixLogged = false;
@@ -78,6 +138,8 @@ export function createEmergencyController({
           if (!firstFixLogged) {
             firstFixLogged = true;
             log(`📍 Location fixed: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)} (±${loc.accuracy}m)`);
+          } else {
+            maybeRefreshAddress(sessionId, loc);
           }
           lastLocKey = null;
         } else if (s.status === 'error' && s.errorKind !== lastLocKey) {
@@ -141,6 +203,16 @@ export function createEmergencyController({
     const fix = await location.waitForFix(waitForFixMs);
     if (activeId() !== sessionId) return;
     if (!fix) log('📡 No GPS fix yet — alert will not include a location', 'warning');
+
+    // Address + floor make the alert actionable; each step has its own
+    // timeout, and together they never hold the alert back more than ~6 s.
+    if (fix) {
+      await Promise.race([
+        Promise.all([lookupAddress(sessionId, fix), estimateFloor(sessionId, fix)]),
+        new Promise((r) => setTimeout(r, 6000)),
+      ]);
+      if (activeId() !== sessionId) return;
+    }
 
     const session = manager.getSnapshot().activeSession;
     const payload = buildAlertPayload({ session, location: fix, contacts, user: context.user });
@@ -208,6 +280,14 @@ export function createEmergencyController({
       });
 
       return result;
+    },
+
+    /** The person confirmed (or corrected) the floor they are on. null clears it. */
+    setConfirmedFloor(value) {
+      const session = manager.getSnapshot().activeSession;
+      if (!session) return;
+      manager.update({ floor: { ...(session.floor ?? {}), confirmed: value } });
+      log(value === null ? '🏢 Floor confirmation cleared' : `🏢 Floor confirmed: ${floorLabel(value)}`, 'success');
     },
 
     /** The overlay's CameraView is mounted and ready. */

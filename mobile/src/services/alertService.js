@@ -1,6 +1,8 @@
 import * as SMS from 'expo-sms';
 import { apiPost, isApiConfigured } from './apiClient';
 import { mapsUrl } from './locationService';
+import { osmUrl } from './geoService';
+import { floorLabel } from './floorService';
 import { TRIGGER_SOURCE } from '../utils/constants';
 import { normalizePhone } from '../utils/validation';
 
@@ -57,16 +59,37 @@ export function orderContacts(contacts) {
   );
 }
 
-export function buildAlertMessage({ user, location, triggerSource, startedAt }) {
+/**
+ * Floor text for alerts. A floor the person confirmed always wins; a
+ * barometer estimate is clearly marked as approximate; otherwise nothing
+ * is claimed.
+ */
+export function describeFloor(floor) {
+  if (floor?.confirmed !== null && floor?.confirmed !== undefined) return `${floorLabel(floor.confirmed)} (confirmed by them)`;
+  if (floor?.estimate) return `about ${floorLabel(floor.estimate.floor)} (barometer estimate, ±${floor.estimate.uncertainty} floors)`;
+  return null;
+}
+
+export function buildAlertMessage({ user, location, triggerSource, startedAt, address, floor }) {
   const who = user?.fullName?.trim() || 'A VISHWAS user';
   const when = new Date(startedAt).toLocaleString();
-  const where = location
-    ? `Location: ${mapsUrl(location)} (±${location.accuracy ?? '?'}m at ${new Date(location.timestamp).toLocaleTimeString()})`
-    : 'Location: not available yet.';
-  return `EMERGENCY: ${who} triggered an SOS on VISHWAS (${TRIGGER_SOURCE[triggerSource] ?? triggerSource}) at ${when}. ${where} Please call them or contact emergency services (112).`;
+  const parts = [`EMERGENCY: ${who} triggered an SOS on VISHWAS (${TRIGGER_SOURCE[triggerSource] ?? triggerSource}) at ${when}.`];
+  if (address?.label) parts.push(`Address: ${address.label}.`);
+  const floorText = describeFloor(floor);
+  if (floorText) parts.push(`Floor: ${floorText}.`);
+  if (location) {
+    parts.push(`Exact location (±${location.accuracy ?? '?'} m at ${new Date(location.timestamp).toLocaleTimeString()}): ${mapsUrl(location)}`);
+    parts.push(`OpenStreetMap: ${osmUrl(location)}`);
+  } else {
+    parts.push('Location: not available yet.');
+  }
+  parts.push('Please call them or contact emergency services (112).');
+  return parts.join(' ');
 }
 
 export function buildAlertPayload({ session, location, contacts, user }) {
+  const address = session.address ?? null;
+  const floor = session.floor ?? null;
   return {
     sessionId: session.id,
     timestamp: session.startedAt,
@@ -78,6 +101,14 @@ export function buildAlertPayload({ session, location, contacts, user }) {
           accuracy: location.accuracy,
           timestamp: location.timestamp,
           mapsUrl: mapsUrl(location),
+          osmUrl: osmUrl(location),
+        }
+      : null,
+    address: address ? { label: address.label, source: address.source } : null,
+    floor: floor
+      ? {
+          confirmed: floor.confirmed ?? null,
+          estimate: floor.estimate ? { floor: floor.estimate.floor, uncertainty: floor.estimate.uncertainty, source: floor.estimate.source } : null,
         }
       : null,
     user: user ? { id: user.id, fullName: user.fullName } : null,
@@ -88,7 +119,7 @@ export function buildAlertPayload({ session, location, contacts, user }) {
       relationship: c.relationship ?? '',
       priority: c.priority,
     })),
-    message: buildAlertMessage({ user, location, triggerSource: session.triggerSource, startedAt: session.startedAt }),
+    message: buildAlertMessage({ user, location, triggerSource: session.triggerSource, startedAt: session.startedAt, address, floor }),
   };
 }
 

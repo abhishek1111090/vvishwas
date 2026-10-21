@@ -135,6 +135,8 @@ export function createEmergencyManager({ storage = { readJSON, writeJSON, remove
         triggerSource: source,
         log: [_entry(`🚨 Emergency activated via ${TRIGGER_SOURCE[source] ?? source}`, 'critical')],
         location: null,       // last real fix during this session
+        address: null,        // reverse-geocoded address (OpenStreetMap / device)
+        floor: null,          // { confirmed, estimate, unavailable }
         alerts: null,         // filled by alertService with REAL per-contact outcomes
         recordings: null,     // filled when recorders stop
         restoredAfterRestart: false,

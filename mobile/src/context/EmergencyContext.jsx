@@ -70,6 +70,7 @@ export function EmergencyProvider({ children }) {
   const openSmsComposer = useCallback(() => emergencyController.openSmsComposer(), []);
   const restartRecording = useCallback(() => emergencyController.restartRecording(), []);
   const deleteHistoryItem = useCallback((id) => emergencyManager.deleteHistoryItem(id), []);
+  const setConfirmedFloor = useCallback((value) => emergencyController.setConfirmedFloor(value), []);
 
   const value = useMemo(
     () => ({
@@ -81,6 +82,8 @@ export function EmergencyProvider({ children }) {
       persistFailed: !!emergencySnap.persistFailed,
       alerts: emergencySnap.activeSession?.alerts ?? null,
 
+      address: emergencySnap.activeSession?.address ?? null,
+      floor: emergencySnap.activeSession?.floor ?? null,
       location: locationSnap.location,
       locationStatus: locationSnap.status,
       locationError: locationSnap.error,
@@ -95,8 +98,9 @@ export function EmergencyProvider({ children }) {
       openSmsComposer,
       restartRecording,
       deleteHistoryItem,
+      setConfirmedFloor,
     }),
-    [emergencySnap, locationSnap, recordingSnap, cameraAllowed, trigger, resolve, cancel, openSmsComposer, restartRecording, deleteHistoryItem]
+    [emergencySnap, locationSnap, recordingSnap, cameraAllowed, trigger, resolve, cancel, openSmsComposer, restartRecording, deleteHistoryItem, setConfirmedFloor]
   );
 
   return <EmergencyContext.Provider value={value}>{children}</EmergencyContext.Provider>;

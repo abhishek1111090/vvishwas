@@ -51,3 +51,15 @@ jest.mock('@expo-google-fonts/inter', () => ({
   useFonts: () => [true, null],
   Inter_400Regular: 1, Inter_500Medium: 1, Inter_600SemiBold: 1, Inter_700Bold: 1, Inter_800ExtraBold: 1,
 }));
+
+// No real network in tests: anything that isn't explicitly faked fails fast.
+global.fetch = jest.fn(async () => { throw new Error('Network disabled in tests'); });
+
+// Barometer: a phone without one, unless a test fakes it.
+jest.mock('expo-sensors', () => ({
+  Barometer: {
+    isAvailableAsync: jest.fn(async () => false),
+    addListener: jest.fn(() => ({ remove: jest.fn() })),
+    setUpdateInterval: jest.fn(),
+  },
+}));

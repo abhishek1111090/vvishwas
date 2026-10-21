@@ -142,7 +142,7 @@ export function createLocationService(loc = Location) {
           return;
         }
         const sub = await loc.watchPositionAsync(
-          { accuracy: loc.Accuracy.High, timeInterval: 5000, distanceInterval: 0 },
+          { accuracy: loc.Accuracy.BestForNavigation ?? loc.Accuracy.High, timeInterval: 3000, distanceInterval: 0 },
           _onFix,
           (reason) => _fail(classifyLocationError({ message: String(reason) }))
         );

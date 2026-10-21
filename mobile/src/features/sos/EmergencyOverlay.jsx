@@ -4,11 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown, FadeIn, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, cancelAnimation } from 'react-native-reanimated';
-import { MapPin, MessageSquare, RotateCcw, Navigation, Mic, Video, ShieldCheck, Siren, X, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { MapPin, MessageSquare, RotateCcw, Navigation, Mic, Video, ShieldCheck, Siren, X, ChevronDown, ChevronUp, Building2, Layers } from 'lucide-react-native';
 import { useEmergency } from '../../context/EmergencyContext';
 import { emergencyController } from '../../services/emergencyController';
 import { recordingService } from '../../services/recordingService';
 import { mapsUrl } from '../../services/locationService';
+import { OSM_ATTRIBUTION } from '../../services/geoService';
+import { floorLabel } from '../../services/floorService';
 import { AlertStatus, ALERT_STATUS_LABEL, CONFIRMED_STATUSES } from '../../services/alertService';
 import { haptics } from '../../services/hapticService';
 import { TRIGGER_SOURCE } from '../../utils/constants';
@@ -121,13 +123,90 @@ function EvidenceRow({ icon: Icon, label, state, offNote }) {
   );
 }
 
+const FLOOR_OPTIONS = [-2, -1, 0, ...Array.from({ length: 60 }, (_, i) => i + 1)];
+const chipText = (n) => (n < 0 ? `B${Math.abs(n)}` : n === 0 ? 'G' : String(n));
+
+function AddressAndFloor({ address, floor, onSetFloor }) {
+  const [picking, setPicking] = useState(false);
+  const confirmed = floor?.confirmed !== null && floor?.confirmed !== undefined;
+  const estimate = floor?.estimate ?? null;
+
+  let floorText = 'Not detected';
+  let floorColor = c.textSecondary;
+  if (confirmed) {
+    floorText = `${floorLabel(floor.confirmed)} · confirmed`;
+    floorColor = c.safe;
+  } else if (estimate) {
+    floorText = `About ${floorLabel(estimate.floor)} · estimate ±${estimate.uncertainty}`;
+    floorColor = c.warning;
+  } else if (!floor) {
+    floorText = 'Estimating…';
+  }
+
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={styles.infoRow}>
+        <View style={styles.infoIcon}><Building2 size={16} color={c.textPrimary} /></View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T variant="caption" color={c.textSecondary} weight="semibold">ADDRESS</T>
+          <T variant="subheadline" weight="semibold">{address?.label ?? 'Looking up address…'}</T>
+          {address ? (
+            <T variant="caption" color={c.textTertiary}>{address.source === 'openstreetmap' ? `Address ${OSM_ATTRIBUTION}` : 'Address from the phone’s map service'}</T>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.infoRow}>
+        <View style={styles.infoIcon}><Layers size={16} color={c.textPrimary} /></View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T variant="caption" color={c.textSecondary} weight="semibold">FLOOR</T>
+          <T variant="subheadline" weight="semibold" color={floorColor}>{floorText}</T>
+          {!confirmed && floor?.unavailable ? <T variant="caption" color={c.textTertiary}>{floor.unavailable}</T> : null}
+        </View>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={confirmed ? 'Change floor' : 'Set floor'}
+          onPress={() => setPicking((v) => !v)}
+          style={styles.floorBtn}
+        >
+          <T variant="caption" color={c.onInk} weight="bold">{picking ? 'Close' : confirmed ? 'Change' : 'Set floor'}</T>
+        </PressableScale>
+      </View>
+
+      {picking ? (
+        <Animated.View entering={FadeIn.duration(200)}>
+          <T variant="caption" color={c.textSecondary} style={{ marginBottom: 6 }}>Which floor are you on? This is added to the alert.</T>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {FLOOR_OPTIONS.map((n) => {
+              const selected = floor?.confirmed === n;
+              const suggested = !confirmed && estimate?.floor === n;
+              return (
+                <PressableScale
+                  key={n}
+                  accessibilityRole="button"
+                  accessibilityLabel={floorLabel(n)}
+                  onPress={() => { haptics.selection(); onSetFloor(n); setPicking(false); }}
+                  scaleTo={0.9}
+                  style={[styles.floorChip, selected && { backgroundColor: c.ink, borderColor: c.ink }, suggested && { borderColor: c.warning }]}
+                >
+                  <T variant="subheadline" weight="bold" color={selected ? c.onInk : c.textPrimary}>{chipText(n)}</T>
+                </PressableScale>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
 export function EmergencyOverlay() {
   const insets = useSafeAreaInsets();
   const {
     activeSession, log, alerts, isEnding,
-    location, locationStatus, locationError,
+    location, locationStatus, locationError, address, floor,
     audio, video, cameraAllowed,
-    resolve, cancel, openSmsComposer, restartRecording,
+    resolve, cancel, openSmsComposer, restartRecording, setConfirmedFloor,
   } = useEmergency();
   const [showLog, setShowLog] = useState(false);
   const elapsed = useElapsed(activeSession?.startedAt ?? new Date().toISOString());
@@ -218,6 +297,7 @@ export function EmergencyOverlay() {
               ) : null}
             </View>
           </View>
+          <AddressAndFloor address={address} floor={floor} onSetFloor={setConfirmedFloor} />
           {loc ? (
             <PressableScale accessibilityRole="link" onPress={() => Linking.openURL(mapsUrl(loc))} style={styles.mapsBtn}>
               <MapPin size={14} color={c.ink} />
@@ -345,6 +425,10 @@ const styles = StyleSheet.create({
   radarBox: { flexDirection: 'row', alignItems: 'center', gap: 16, backgroundColor: c.surfaceMuted, borderRadius: radius.medium, padding: 12 },
   mapsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, alignSelf: 'flex-end', backgroundColor: c.ink, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill },
   guardian: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  infoIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: c.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  floorBtn: { backgroundColor: c.ink, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill },
+  floorChip: { minWidth: 44, height: 40, paddingHorizontal: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
   gAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4 },
   outlineBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 46, borderRadius: radius.pill, borderWidth: 1, borderColor: c.border },
