@@ -38,6 +38,7 @@ jest.mock('expo-audio', () => ({
     stop: jest.fn(async () => {}),
     addListener: jest.fn(() => ({ remove: jest.fn() })),
   })),
-  useAudioPlayer: jest.fn(() => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn() })),
+  useAudioPlayer: jest.fn(() => ({ play: jest.fn(), pause: jest.fn(), seekTo: jest.fn(async () => {}) })),
+  useAudioPlayerStatus: jest.fn(() => ({ isLoaded: true, playing: false, currentTime: 0, duration: 12.8, didJustFinish: false, error: null })),
   RecordingPresets: { HIGH_QUALITY: {} },
 }));

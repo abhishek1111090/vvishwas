@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, ScrollView, Pressable, Alert, Linking, StyleSheet } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAudioPlayer } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ChevronLeft, ChevronDown, ChevronUp, MapPin, Trash2, History as HistoryIcon } from 'lucide-react-native';
 import { useEmergency } from '../context/EmergencyContext';
@@ -19,22 +19,57 @@ import { useTheme, radius, spacing } from '../theme/theme';
 
 const RECORDING_STATUS = { saved: 'Saved privately on this phone', error: 'Not saved', idle: 'Not recorded' };
 
+const clock = (sec) => {
+  const s = Math.max(0, Math.round(sec || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/**
+ * Plays a saved audio recording and shows what the player is REALLY doing
+ * (loading / playing with time / finished / error). Before playing, the
+ * audio session is switched to playback: on iPhone this makes it audible
+ * with the silent switch on and routes it to the loudspeaker instead of
+ * the earpiece used while recording.
+ */
 function AudioPlayback({ uri }) {
   const { colors } = useTheme();
   const player = useAudioPlayer(uri);
-  const [playing, setPlaying] = useState(false);
+  const status = useAudioPlayerStatus(player);
+  const [error, setError] = useState(null);
+
+  async function toggle() {
+    setError(null);
+    try {
+      if (status.playing) {
+        player.pause();
+        return;
+      }
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+      const atEnd = status.didJustFinish || (status.duration > 0 && status.currentTime >= status.duration - 0.25);
+      if (atEnd) await player.seekTo(0);
+      player.play();
+    } catch (err) {
+      setError(err?.message ?? 'Could not play this recording.');
+    }
+  }
+
+  const loadError = status.error || error;
+  let label = 'Loading audio…';
+  if (status.isLoaded) {
+    label = status.playing
+      ? `Pause · ${clock(status.currentTime)} / ${clock(status.duration)}`
+      : `Play audio · ${clock(status.duration)}`;
+  }
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => {
-        if (playing) player.pause();
-        else { player.seekTo(0); player.play(); }
-        setPlaying(!playing);
-      }}
-      hitSlop={8}
-    >
-      <VText variant="subheadline" color={colors.accent} style={{ fontWeight: '600' }}>{playing ? 'Pause' : 'Play audio'}</VText>
-    </Pressable>
+    <View style={{ gap: 2 }}>
+      <Pressable accessibilityRole="button" onPress={toggle} disabled={!status.isLoaded} hitSlop={8}>
+        <VText variant="subheadline" color={status.isLoaded ? colors.accent : colors.textSecondary} style={{ fontWeight: '600' }}>
+          {label}
+        </VText>
+      </Pressable>
+      {loadError ? <VText variant="caption" color={colors.emergency}>{loadError}</VText> : null}
+    </View>
   );
 }
 

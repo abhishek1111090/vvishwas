@@ -202,7 +202,14 @@ describe('VISHWAS app flows (Expo Router)', () => {
     expect(screen.getPathname()).toBe('/history');
     expect(await screen.findByText('Emergency History')).toBeTruthy();
     await fireEvent.press(screen.getByText('SOS via SOS Button'));
-    expect(await screen.findByText('Play audio')).toBeTruthy();
+    // Real duration from the player, and playback switches the audio session
+    // to loudspeaker / silent-switch-proof before playing.
+    const audioButton = await screen.findByText('Play audio · 0:13');
+    const expoAudio = require('expo-audio');
+    await fireEvent.press(audioButton);
+    await waitFor(() => expect(expoAudio.setAudioModeAsync).toHaveBeenCalledWith({ playsInSilentMode: true, allowsRecording: false }));
+    const player = expoAudio.useAudioPlayer.mock.results.at(-1).value;
+    await waitFor(() => expect(player.play).toHaveBeenCalled());
     expect(screen.getByText('Play video')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(await screen.findByText('Recent Activity')).toBeTruthy();
