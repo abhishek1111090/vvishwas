@@ -1,0 +1,64 @@
+{
+  "name": "vishwas-mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "eslint-config-expo": "~58.0.4",
+    "expo": "~58.0.16",
+    "expo-asset": "~58.0.17",
+    "expo-audio": "~58.0.9",
+    "expo-battery": "~58.0.3",
+    "expo-camera": "~58.0.11",
+    "expo-constants": "~58.0.12",
+    "expo-contacts": "~58.0.8",
+    "expo-crypto": "~58.0.7",
+    "expo-device": "~58.0.5",
+    "expo-file-system": "~58.0.10",
+    "expo-haptics": "~58.0.7",
+    "expo-image-manipulator": "~58.0.15",
+    "expo-image-picker": "~58.0.10",
+    "expo-linking": "~58.0.13",
+    "expo-location": "~58.0.18",
+    "expo-notifications": "~58.1.5",
+    "expo-router": "~58.0.24",
+    "expo-secure-store": "~58.0.2",
+    "expo-sms": "~58.0.2",
+    "expo-status-bar": "~58.0.3",
+    "expo-video": "~58.0.12",
+    "lucide-react-native": "^1.61.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "lint": "expo lint",
+    "test": "jest"
+  },
+  "private": true,
+  "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "eslint": "^9.39.5",
+    "jest": "~30.5.2",
+    "jest-expo": "~58.0.11"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "setupFiles": [
+      "./jest.setup.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|react-native-svg|lucide-react-native|@noble/.*|standard-navigation)"
+    ]
+  }
+}
