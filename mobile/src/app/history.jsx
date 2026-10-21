@@ -11,11 +11,14 @@ import { mapsUrl } from '../services/locationService';
 import { ALERT_STATUS_LABEL } from '../services/alertService';
 import { TRIGGER_SOURCE, SESSION_STATUS } from '../utils/constants';
 import { formatDateTime, formatStandardTime, formatDuration } from '../utils/formatDate';
-import { Card, VText } from '../components/ui';
+import { Card, Badge, VText } from '../components/ui';
+import { Enter } from '../components/motion';
 import { useTheme, radius, spacing } from '../theme/theme';
 
 // Emergency History — every ended SOS session with its timeline, the REAL
 // per-contact alert outcome, last location and playable evidence.
+
+const STATUS_TONE = { resolved: 'safe', cancelled: 'muted', active: 'danger', ending: 'warning' };
 
 const RECORDING_STATUS = { saved: 'Saved privately on this phone', error: 'Not saved', idle: 'Not recorded' };
 
@@ -64,7 +67,7 @@ function AudioPlayback({ uri }) {
   return (
     <View style={{ gap: 2 }}>
       <Pressable accessibilityRole="button" onPress={toggle} disabled={!status.isLoaded} hitSlop={8}>
-        <VText variant="subheadline" color={status.isLoaded ? colors.accent : colors.textSecondary} style={{ fontWeight: '600' }}>
+        <VText variant="subheadline" color={status.isLoaded ? colors.ink : colors.textSecondary} weight="semibold">
           {label}
         </VText>
       </Pressable>
@@ -97,7 +100,7 @@ function RecordingRow({ label, recording }) {
         ? <VideoPlayback uri={recording.uri} />
         : (
           <Pressable accessibilityRole="button" onPress={() => setShow(true)} hitSlop={8}>
-            <VText variant="subheadline" color={colors.accent} style={{ fontWeight: '600' }}>Play video</VText>
+            <VText variant="subheadline" weight="semibold">Play video</VText>
           </Pressable>
         ))}
     </View>
@@ -119,13 +122,13 @@ function SessionCard({ session, onDelete }) {
             {formatDateTime(session.startedAt)}{session.endedAt ? ` · ${formatDuration(session.startedAt, session.endedAt)}` : ''}
           </VText>
         </View>
-        <VText variant="caption" color={status.color} style={{ fontWeight: '700' }}>{status.text}</VText>
+        <Badge text={status.text} tone={STATUS_TONE[session.status] ?? 'muted'} />
         {open ? <ChevronUp size={18} color={colors.textSecondary} /> : <ChevronDown size={18} color={colors.textSecondary} />}
       </Pressable>
 
       {open && (
         <View style={styles.details}>
-          <VText variant="caption" secondary style={styles.sectionTitle}>CONTACT ALERTS</VText>
+          <VText variant="overline" secondary style={styles.sectionTitle}>Contact alerts</VText>
           {!alerts && <VText variant="caption" secondary>No alert was attempted.</VText>}
           {alerts && (alerts.recipients ?? []).length === 0 && (
             <VText variant="caption" secondary>{ALERT_STATUS_LABEL[alerts.status] ?? alerts.status}</VText>
@@ -137,11 +140,11 @@ function SessionCard({ session, onDelete }) {
             </View>
           ))}
 
-          <VText variant="caption" secondary style={styles.sectionTitle}>LAST LOCATION</VText>
+          <VText variant="overline" secondary style={styles.sectionTitle}>Last location</VText>
           {session.location ? (
             <Pressable accessibilityRole="link" onPress={() => Linking.openURL(mapsUrl(session.location))} style={styles.row}>
-              <MapPin size={14} color={colors.accent} />
-              <VText variant="subheadline" color={colors.accent} style={{ flex: 1 }}>
+              <MapPin size={14} color={colors.ink} />
+              <VText variant="subheadline" weight="semibold" style={{ flex: 1, textDecorationLine: 'underline' }}>
                 {session.location.latitude.toFixed(5)}, {session.location.longitude.toFixed(5)} (±{session.location.accuracy}m)
               </VText>
             </Pressable>
@@ -149,7 +152,7 @@ function SessionCard({ session, onDelete }) {
             <VText variant="caption" secondary>No location fix was obtained.</VText>
           )}
 
-          <VText variant="caption" secondary style={styles.sectionTitle}>EVIDENCE</VText>
+          <VText variant="overline" secondary style={styles.sectionTitle}>Evidence</VText>
           {session.recordings ? (
             <>
               <RecordingRow label="Audio" recording={session.recordings.audio} />
@@ -159,7 +162,7 @@ function SessionCard({ session, onDelete }) {
             <VText variant="caption" secondary>No recordings.</VText>
           )}
 
-          <VText variant="caption" secondary style={styles.sectionTitle}>TIMELINE</VText>
+          <VText variant="overline" secondary style={styles.sectionTitle}>Timeline</VText>
           {session.log.map((e) => (
             <View key={e.id} style={styles.logRow}>
               <VText variant="caption" secondary style={styles.logTime}>{formatStandardTime(e.timestamp)}</VText>
@@ -207,7 +210,7 @@ export default function HistoryScreen() {
     <SafeAreaView edges={['top', 'bottom']} style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={styles.topbar}>
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/home'))} hitSlop={10} style={styles.back}>
-          <ChevronLeft size={22} color={colors.accent} />
+          <ChevronLeft size={22} color={colors.textPrimary} />
         </Pressable>
         <VText variant="headline">Emergency History</VText>
         <View style={styles.back} />
@@ -219,7 +222,11 @@ export default function HistoryScreen() {
             <VText variant="subheadline" secondary style={{ textAlign: 'center' }}>No emergencies yet. Ended SOS sessions appear here.</VText>
           </View>
         ) : (
-          history.map((s) => <SessionCard key={s.id} session={s} onDelete={confirmDelete} />)
+          history.map((s, i) => (
+            <Enter key={s.id} index={i}>
+              <SessionCard session={s} onDelete={confirmDelete} />
+            </Enter>
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
@@ -234,7 +241,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl },
   summary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   details: { gap: 6, marginTop: spacing.md },
-  sectionTitle: { fontWeight: '700', letterSpacing: 0.6, marginTop: 8 },
+  sectionTitle: { marginTop: 10 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   logRow: { flexDirection: 'row', gap: 8 },
   logTime: { width: 84 },

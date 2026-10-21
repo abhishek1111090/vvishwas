@@ -140,20 +140,37 @@ describe('VISHWAS app flows (Expo Router)', () => {
   it('Home shows real device status (battery, location, contacts)', async () => {
     await seed({ onboarded: true, signedIn: true, contacts: [ASHA] });
     const screen = await renderRouter(routes, { initialUrl: '/home' });
-    expect(await screen.findByText('73%')).toBeTruthy();
-    expect(await screen.findByText('Location OK')).toBeTruthy();
-    expect(screen.getByText('1 Contact')).toBeTruthy();
+    expect(await screen.findByText('Battery 73%')).toBeTruthy();
+    expect(await screen.findByText('GPS Active')).toBeTruthy();
+    expect(screen.getByText('1 Guardian')).toBeTruthy();
   });
 
-  it('manual SOS: confirm → overlay with honest statuses → I\'m Safe → history', async () => {
+  it('press & hold SOS starts the emergency; a short tap only shows a hint', async () => {
+    await seed({ onboarded: true, signedIn: true });
+    const screen = await renderRouter(routes, { initialUrl: '/home' });
+    const button = await screen.findByTestId('sos-button');
+    await fireEvent(button, 'pressIn');
+    await fireEvent(button, 'pressOut');
+    expect(await screen.findByText('Hold for 1.5 seconds to send SOS')).toBeTruthy();
+    expect(emergencyManager.getSnapshot().isActive).toBe(false);
+
+    await fireEvent(button, 'pressIn');
+    expect(await screen.findByText('🚨 Emergency Active', {}, { timeout: 4000 })).toBeTruthy();
+    expect(emergencyManager.getSnapshot().activeSession.triggerSource).toBe('button');
+  });
+
+  it('manual SOS (screen-reader confirm) → overlay with honest statuses → I\'m Safe → history', async () => {
     await seed({ onboarded: true, signedIn: true, contacts: [ASHA] });
     const screen = await renderRouter(routes, { initialUrl: '/home' });
-    await fireEvent.press(await screen.findByLabelText('Send SOS emergency alert'));
+    await fireEvent(await screen.findByTestId('sos-button'), 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
     await fireEvent.press(await screen.findByText('Yes — Send Alert'));
 
     expect(await screen.findByText('🚨 Emergency Active')).toBeTruthy();
-    expect(await screen.findByText('26.900000, 75.800000')).toBeTruthy();
-    // Camera permission denied in this test → video honestly unavailable.
+    expect(await screen.findByText('26.90000°')).toBeTruthy();
+    expect(screen.getByText('75.80000°')).toBeTruthy();
+    // Camera permission denied in this test → video honestly off, and the log says why.
+    expect(await screen.findByText('Camera access not allowed')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Activity Log'));
     await waitFor(() => expect(screen.getAllByText(/camera permission denied/).length).toBeGreaterThan(0));
     // jest-expo runs as iOS: with no server, Messages opens automatically.
     // The mock reports 'unknown', so the app must NOT claim it was sent.
@@ -162,7 +179,7 @@ describe('VISHWAS app flows (Expo Router)', () => {
     expect(await screen.findByText('SMS app opened — not confirmed sent')).toBeTruthy();
     expect(screen.getByText('Text contacts')).toBeTruthy(); // can retry
 
-    await fireEvent.press(screen.getByText("✅ I'm Safe — End Emergency"));
+    await fireEvent.press(screen.getByText("I'm Safe — End Emergency"));
     await waitFor(() => expect(screen.queryByText('🚨 Emergency Active')).toBeNull(), { timeout: 6000 });
     expect(await screen.findByText('Resolved')).toBeTruthy();
     expect(JSON.parse(await AsyncStorage.getItem(STORAGE_KEYS.emergencyHistory))[0].status).toBe('resolved');
@@ -219,7 +236,7 @@ describe('VISHWAS app flows (Expo Router)', () => {
   it('Account → Emergency History opens too', async () => {
     await seed({ onboarded: true, signedIn: true });
     const screen = await renderRouter(routes, { initialUrl: '/profile' });
-    await fireEvent.press(await screen.findByText('Emergency History'));
+    await fireEvent.press(await screen.findByText('Emergency History & Evidence'));
     expect(screen.getPathname()).toBe('/history');
     expect(await screen.findByText(/No emergencies yet/)).toBeTruthy();
   });

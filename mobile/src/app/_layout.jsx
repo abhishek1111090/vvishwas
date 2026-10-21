@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShieldCheck } from 'lucide-react-native';
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { initStorage } from '../utils/storage';
 import { authService } from '../services/authService';
 import { emergencyManager } from '../services/emergencyManager';
@@ -22,6 +23,8 @@ import { useTheme } from '../theme/theme';
 export default function RootLayout() {
   const { colors } = useTheme();
   const [boot, setBoot] = useState({ ready: false, user: null });
+  // If the font download fails we still start — Inter falls back to the system font.
+  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
 
   useEffect(() => {
     let cancelled = false;
@@ -39,9 +42,9 @@ export default function RootLayout() {
     return () => { cancelled = true; };
   }, []);
 
-  if (!boot.ready) {
+  if (!boot.ready || (!fontsLoaded && !fontError)) {
     return (
-      <View style={[styles.splash, { backgroundColor: colors.accent }]}>
+      <View style={[styles.splash, { backgroundColor: '#0A0A0A' }]}>
         <ShieldCheck size={64} color="#fff" strokeWidth={1.75} />
         <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />
       </View>

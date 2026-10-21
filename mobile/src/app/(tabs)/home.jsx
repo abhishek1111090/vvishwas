@@ -1,32 +1,35 @@
 import { useState } from 'react';
-import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, ScrollView, Pressable, Linking, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  ShieldAlert, ShieldCheck, TriangleAlert, Users, MapPin, AudioLines, CircleCheck,
-  Battery, BatteryCharging, BatteryWarning, BatteryLow, BatteryMedium, BatteryFull,
-  Timer, PhoneIncoming, BadgeCheck, Map, Sparkles,
+  ShieldCheck, ShieldAlert, Users, MapPin, Battery, BatteryCharging, BatteryLow, BatteryMedium, BatteryFull, BatteryWarning,
+  Timer, PhoneIncoming, BadgeCheck, Route, CircleCheck, Siren, Phone, ChevronRight, Sparkles,
 } from 'lucide-react-native';
 import { useEmergency } from '../../context/EmergencyContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { useContacts } from '../../context/ContactsContext';
+import { useAuth } from '../../context/AuthContext';
 import { useBattery, useLocationStatus } from '../../utils/deviceHooks';
 import { formatShortTime, formatShortDate } from '../../utils/formatDate';
-import { TRIGGER_SOURCE, SESSION_STATUS } from '../../utils/constants';
+import { TRIGGER_SOURCE } from '../../utils/constants';
+import { haptics } from '../../services/hapticService';
 import { SOSButton } from '../../features/sos/SOSButton';
 import { SOSConfirmSheet } from '../../features/sos/SOSConfirmSheet';
 import { BottomSheet } from '../../components/BottomSheet';
-import { Card, StatusPill, IconBadge, PrimaryButton, VText } from '../../components/ui';
-import { useTheme, withAlpha, radius, spacing } from '../../theme/theme';
+import { Card, Badge, StatusPill, IconTile, Avatar, SectionHeader, PrimaryButton, VText } from '../../components/ui';
+import { Enter, PressableScale } from '../../components/motion';
+import { useTheme, radius, spacing } from '../../theme/theme';
 
-const QUICK_ACTIONS = [
-  { id: 'safetyTimer', title: 'Safety Timer', subtitle: "Auto-SOS if you don't check in", icon: Timer, tint: '#ff9500' },
-  { id: 'fakeCall', title: 'Fake Call', subtitle: 'Simulate an incoming call', icon: PhoneIncoming, tint: '#af52de' },
-  { id: 'checkIn', title: 'Check In', subtitle: "Tell contacts you're safe", icon: BadgeCheck, tint: '#34c759' },
-  { id: 'safeRoute', title: 'Safe Route', subtitle: 'Find a well-lit, busy path', icon: Map, tint: '#0a84ff' },
+const TOOLKIT = [
+  { id: 'safetyTimer', title: 'Safety Timer', subtitle: 'Auto-SOS if you don’t check in', icon: Timer },
+  { id: 'fakeCall', title: 'Fake Call', subtitle: 'Simulate an incoming call', icon: PhoneIncoming },
+  { id: 'checkIn', title: 'Check In', subtitle: 'Tell contacts you’re safe', icon: BadgeCheck },
+  { id: 'safeRoute', title: 'Safe Route', subtitle: 'Well-lit, busy pathways', icon: Route },
 ];
 
-const LOCATION_LABEL = { ok: 'Location OK', checking: 'Locating…', error: 'No Location', off: 'Location Off' };
+const STATUS_TONE = { resolved: 'safe', cancelled: 'muted', active: 'danger', ending: 'warning' };
+const STATUS_TEXT = { resolved: 'Resolved', cancelled: 'Cancelled', active: 'Active', ending: 'Ending' };
 
 function batteryIcon(level, charging) {
   if (level === null) return Battery;
@@ -37,21 +40,14 @@ function batteryIcon(level, charging) {
   return BatteryFull;
 }
 
-function StatusItem({ icon: Icon, label, tint, onPress, accessibilityHint }) {
-  const content = (
-    <>
-      <Icon size={18} color={tint} strokeWidth={2.25} />
-      <VText variant="caption" secondary numberOfLines={1}>{label}</VText>
-    </>
+function StatTile({ icon, title, subtitle, tone = 'muted' }) {
+  return (
+    <Card style={styles.stat}>
+      <IconTile icon={icon} tone={tone} size={34} />
+      <VText variant="headline" numberOfLines={1} style={{ fontSize: 14 }}>{title}</VText>
+      <VText variant="caption" secondary numberOfLines={1}>{subtitle}</VText>
+    </Card>
   );
-  if (onPress) {
-    return (
-      <Pressable accessibilityRole="button" accessibilityHint={accessibilityHint} onPress={onPress} style={styles.statusItem}>
-        {content}
-      </Pressable>
-    );
-  }
-  return <View style={styles.statusItem}>{content}</View>;
 }
 
 export default function Home() {
@@ -60,117 +56,162 @@ export default function Home() {
   const emergency = useEmergency();
   const { statuses } = usePermissions();
   const { contacts } = useContacts();
+  const { currentUser } = useAuth();
   const battery = useBattery();
   const loc = useLocationStatus(statuses.location);
   const [showConfirm, setShowConfirm] = useState(false);
   const [comingSoon, setComingSoon] = useState(null);
 
-  const isProtected = contacts.length > 0 && loc.state === 'ok';
-  const isRecording = emergency.audio.status === 'recording' || emergency.video.status === 'recording';
+  const locationOk = loc.state === 'ok';
+  const isProtected = contacts.length > 0 && locationOk;
+  const missing = [contacts.length === 0 && 'add a trusted contact', !locationOk && 'turn on location'].filter(Boolean);
+
   const BatteryIcon = batteryIcon(battery.level, battery.charging);
+  const batteryLow = battery.level !== null && battery.level < 0.2 && !battery.charging;
 
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={styles.topbar}>
         <View style={styles.brand}>
-          <View style={[styles.logo, { backgroundColor: withAlpha(colors.accent, 0.12) }]}>
-            <ShieldAlert size={20} strokeWidth={2.4} color={colors.accent} />
+          <View style={[styles.logo, { backgroundColor: colors.ink }]}>
+            <ShieldCheck size={18} color={colors.onInk} strokeWidth={2.4} />
           </View>
-          <VText variant="headline" style={{ fontWeight: '800' }}>VISHWAS</VText>
+          <View>
+            <VText variant="headline" weight="heavy" style={{ letterSpacing: 0.4 }}>VISHWAS</VText>
+            <VText variant="overline" tertiary style={{ fontSize: 9 }}>Personal Safety</VText>
+          </View>
         </View>
-        <StatusPill text={isProtected ? 'Protected' : 'Setup Needed'} color={isProtected ? colors.safe : colors.warning} />
+        <View style={styles.topRight}>
+          <StatusPill text={isProtected ? 'Active' : 'Setup'} tone={isProtected ? 'safe' : 'warning'} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Account" onPress={() => router.navigate('/profile')}>
+            <Avatar name={currentUser?.fullName} size={36} />
+          </Pressable>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Card>
-          <View style={{ gap: spacing.md }}>
-            {isRecording ? (
-              <StatusPill text="Recording Active" color={colors.emergency} icon={AudioLines} />
-            ) : (
-              <StatusPill
-                text={isProtected ? 'Protected' : 'Setup Needed'}
-                color={isProtected ? colors.safe : colors.warning}
-                icon={isProtected ? ShieldCheck : TriangleAlert}
-              />
-            )}
-            <View style={styles.statusRow}>
-              <StatusItem
-                icon={Users}
-                label={`${contacts.length} Contact${contacts.length === 1 ? '' : 's'}`}
-                tint={contacts.length > 0 ? colors.info : colors.warning}
-              />
-              <StatusItem
-                icon={MapPin}
-                label={LOCATION_LABEL[loc.state]}
-                tint={loc.state === 'ok' ? colors.safe : loc.state === 'checking' ? colors.textSecondary : colors.warning}
-                onPress={loc.state === 'error' ? loc.recheck : undefined}
-                accessibilityHint="Retries getting your location"
-              />
-              <StatusItem
-                icon={BatteryIcon}
-                label={battery.level === null ? '—' : `${Math.round(battery.level * 100)}%`}
-                tint={battery.level !== null && battery.level < 0.2 && !battery.charging ? colors.warning : colors.textSecondary}
-              />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Enter index={0}>
+          <Card>
+            <View style={styles.guardRow}>
+              <IconTile icon={isProtected ? ShieldCheck : ShieldAlert} tone={isProtected ? 'ink' : 'warning'} size={46} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <View style={styles.guardTitle}>
+                  <VText variant="headline">Protection</VText>
+                  <Badge text={isProtected ? 'Safe' : 'Setup'} tone={isProtected ? 'ink' : 'warning'} />
+                </View>
+                <VText variant="caption" secondary>
+                  {isProtected
+                    ? 'Location, contacts and evidence capture are ready.'
+                    : `To be fully protected, ${missing.join(' and ')}.`}
+                </VText>
+              </View>
             </View>
-            {loc.state === 'error' && loc.error ? (
-              <VText variant="caption" color={colors.warning}>{loc.error} Tap “No Location” to retry.</VText>
-            ) : null}
+          </Card>
+        </Enter>
+
+        <Enter index={1} style={styles.stats}>
+          <StatTile
+            icon={Users}
+            tone={contacts.length > 0 ? 'muted' : 'warning'}
+            title={`${contacts.length} Guardian${contacts.length === 1 ? '' : 's'}`}
+            subtitle={contacts.length > 0 ? 'Ready to alert' : 'Add contacts'}
+          />
+          <StatTile
+            icon={MapPin}
+            tone={locationOk ? 'safe' : loc.state === 'checking' ? 'muted' : 'warning'}
+            title={locationOk ? 'GPS Active' : loc.state === 'checking' ? 'Locating…' : loc.state === 'off' ? 'GPS Off' : 'No Signal'}
+            subtitle={locationOk ? `±${loc.location?.accuracy ?? '?'} m` : loc.state === 'off' ? 'Allow location' : 'Tap to retry'}
+          />
+          <StatTile
+            icon={BatteryIcon}
+            tone={batteryLow ? 'warning' : 'muted'}
+            title={battery.level === null ? 'Battery —' : `Battery ${Math.round(battery.level * 100)}%`}
+            subtitle={battery.level === null ? 'Not available' : battery.charging ? 'Charging' : batteryLow ? 'Low battery' : 'On battery'}
+          />
+        </Enter>
+        {loc.state === 'error' ? (
+          <Pressable accessibilityRole="button" onPress={loc.recheck} hitSlop={6}>
+            <VText variant="caption" color={colors.warning} style={{ textAlign: 'center' }}>{loc.error} Tap to retry.</VText>
+          </Pressable>
+        ) : null}
+
+        <Enter index={2} style={styles.sos}>
+          <SOSButton
+            isActive={emergency.isActive}
+            onTrigger={() => emergency.trigger('button')}
+            onAccessibleActivate={() => setShowConfirm(true)}
+          />
+        </Enter>
+
+        <Enter index={3}>
+          <SectionHeader title="Safety Toolkit" right={<Badge text="Coming soon" tone="outline" />} />
+          <View style={styles.grid}>
+            {TOOLKIT.map((t) => (
+              <PressableScale
+                key={t.id}
+                accessibilityRole="button"
+                onPress={() => { haptics.selection(); setComingSoon(t); }}
+                style={[styles.toolTile, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              >
+                <IconTile icon={t.icon} tone="ink" size={38} />
+                <VText variant="headline">{t.title}</VText>
+                <VText variant="caption" secondary>{t.subtitle}</VText>
+              </PressableScale>
+            ))}
           </View>
-        </Card>
+        </Enter>
 
-        <View style={styles.sos}>
-          <SOSButton isActive={emergency.isActive} onPress={() => { if (!emergency.isActive) setShowConfirm(true); }} />
-          <VText variant="caption" secondary style={{ textAlign: 'center' }}>
-            Tap button for emergency · Triple-tap anywhere for instant SOS
-          </VText>
-        </View>
-
-        <View style={styles.grid}>
-          {QUICK_ACTIONS.map((a) => (
-            <Pressable
-              key={a.id}
-              accessibilityRole="button"
-              onPress={() => setComingSoon(a)}
-              style={({ pressed }) => [styles.tile, { backgroundColor: colors.backgroundSecondary, opacity: pressed ? 0.8 : 1 }]}
-            >
-              <IconBadge icon={a.icon} tint={a.tint} />
-              <VText variant="headline">{a.title}</VText>
-              <VText variant="caption" secondary>{a.subtitle}</VText>
-            </Pressable>
-          ))}
-        </View>
-
-        <Card>
-          <View style={{ gap: spacing.sm }}>
+        <Enter index={4}>
+          <Card>
             <View style={styles.recentHeader}>
               <VText variant="headline">Recent Activity</VText>
               {emergency.history.length > 0 && (
-                <Pressable accessibilityRole="button" onPress={() => router.push('/history')} hitSlop={10}>
-                  <VText variant="subheadline" color={colors.accent} style={{ fontWeight: '600' }}>See All</VText>
+                <Pressable accessibilityRole="button" onPress={() => router.push('/history')} hitSlop={10} style={styles.seeAll}>
+                  <VText variant="subheadline" weight="semibold">See All</VText>
+                  <ChevronRight size={16} color={colors.textPrimary} />
                 </Pressable>
               )}
             </View>
             {emergency.history.length === 0 ? (
               <View style={styles.recentRow}>
-                <CircleCheck size={18} color={colors.textSecondary} />
-                <VText variant="subheadline" secondary>No recent activity. You’re all clear.</VText>
+                <IconTile icon={CircleCheck} tone="safe" size={36} />
+                <VText variant="subheadline" secondary style={{ flex: 1 }}>No recent activity. You’re all clear.</VText>
               </View>
             ) : (
-              emergency.history.slice(0, 3).map((s) => {
-                const st = SESSION_STATUS[s.status] ?? { text: s.status, color: colors.textSecondary };
-                return (
-                  <View style={styles.recentRow} key={s.id}>
-                    <VText variant="caption" secondary style={styles.recentTime}>
-                      {formatShortDate(s.startedAt)}{'\n'}{formatShortTime(s.startedAt)}
-                    </VText>
-                    <VText variant="subheadline" style={{ flex: 1 }}>SOS via {TRIGGER_SOURCE[s.triggerSource] ?? s.triggerSource}</VText>
-                    <VText variant="caption" color={st.color} style={{ fontWeight: '700' }}>{st.text}</VText>
+              emergency.history.slice(0, 3).map((s) => (
+                <View style={styles.recentRow} key={s.id}>
+                  <IconTile icon={Siren} tone={s.status === 'resolved' ? 'muted' : 'danger'} size={36} />
+                  <View style={{ flex: 1 }}>
+                    <VText variant="subheadline" weight="semibold">SOS via {TRIGGER_SOURCE[s.triggerSource] ?? s.triggerSource}</VText>
+                    <VText variant="caption" secondary>{formatShortDate(s.startedAt)} · {formatShortTime(s.startedAt)}</VText>
                   </View>
-                );
-              })
+                  <Badge text={STATUS_TEXT[s.status] ?? s.status} tone={STATUS_TONE[s.status] ?? 'muted'} />
+                </View>
+              ))
             )}
+          </Card>
+        </Enter>
+
+        <Enter index={5}>
+          <View style={[styles.national, { backgroundColor: colors.ink }]}>
+            <View style={[styles.nationalIcon, { backgroundColor: colors.danger }]}>
+              <Siren size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <VText variant="headline" color={colors.onInk}>National Emergency</VText>
+              <VText variant="caption" color={colors.onInk} style={{ opacity: 0.7 }}>Police · Fire · Medical — 112</VText>
+            </View>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Call 112"
+              onPress={() => { haptics.medium(); Linking.openURL('tel:112'); }}
+              style={[styles.callPill, { backgroundColor: colors.onInk }]}
+            >
+              <Phone size={14} color={colors.ink} />
+              <VText variant="caption" color={colors.ink} weight="bold">CALL 112</VText>
+            </PressableScale>
           </View>
-        </Card>
+        </Enter>
       </ScrollView>
 
       <SOSConfirmSheet
@@ -185,9 +226,7 @@ export default function Home() {
 
       <BottomSheet isOpen={comingSoon !== null} onClose={() => setComingSoon(null)}>
         <View style={styles.comingSoon}>
-          <View style={[styles.sparkle, { backgroundColor: withAlpha(colors.accent, 0.12) }]}>
-            <Sparkles size={28} color={colors.accent} />
-          </View>
+          <IconTile icon={Sparkles} tone="ink" size={56} />
           <VText variant="title">{comingSoon?.title}</VText>
           <VText variant="body" secondary style={{ textAlign: 'center' }}>
             This feature is coming in Phase 2 of VISHWAS. We wanted you to see where it’ll live before it’s fully built out.
@@ -201,18 +240,23 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logo: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  statusItem: { flex: 1, alignItems: 'center', gap: 4, minHeight: 44, justifyContent: 'center' },
-  sos: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tile: { width: '48%', flexGrow: 1, borderRadius: radius.large, padding: spacing.md, gap: 6 },
-  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  recentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  recentTime: { width: 64 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  content: { paddingHorizontal: 20, paddingBottom: spacing.xxl, gap: 14 },
+  guardRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  guardTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stats: { flexDirection: 'row', gap: 10 },
+  stat: { flex: 1, padding: 12, gap: 6 },
+  sos: { alignItems: 'center', paddingVertical: 10 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10 },
+  toolTile: { width: '48%', flexGrow: 1, borderRadius: radius.large, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 6 },
+  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  national: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: radius.large },
+  nationalIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  callPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.pill },
   comingSoon: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
-  sparkle: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
 });

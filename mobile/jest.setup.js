@@ -42,3 +42,12 @@ jest.mock('expo-audio', () => ({
   useAudioPlayerStatus: jest.fn(() => ({ isLoaded: true, playing: false, currentTime: 0, duration: 12.8, didJustFinish: false, error: null })),
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
+
+// Animations: Reanimated's documented Jest setup (real library, test timers).
+require('react-native-reanimated').setUpTests();
+// Fonts load instantly in tests.
+jest.mock('expo-font', () => ({ useFonts: () => [true, null], isLoaded: () => true, loadAsync: async () => {} }));
+jest.mock('@expo-google-fonts/inter', () => ({
+  useFonts: () => [true, null],
+  Inter_400Regular: 1, Inter_500Medium: 1, Inter_600SemiBold: 1, Inter_700Bold: 1, Inter_800ExtraBold: 1,
+}));

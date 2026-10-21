@@ -20,7 +20,7 @@ export function LabeledField({ label, value, onChangeText, kind = 'text', error 
   const { colors } = useTheme();
   return (
     <View style={styles.wrap}>
-      <VText variant="caption" secondary>{label}</VText>
+      <VText variant="caption" weight="semibold" secondary>{label}</VText>
       <TextInput
         testID={testID}
         accessibilityLabel={label}
@@ -35,8 +35,8 @@ export function LabeledField({ label, value, onChangeText, kind = 'text', error 
           font.body,
           {
             color: colors.textPrimary,
-            backgroundColor: colors.backgroundSecondary,
-            borderColor: error ? colors.emergency : 'transparent',
+            backgroundColor: colors.surfaceMuted,
+            borderColor: error ? colors.danger : colors.border,
           },
         ]}
         {...KIND_PROPS[kind]}
@@ -48,5 +48,5 @@ export function LabeledField({ label, value, onChangeText, kind = 'text', error 
 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
-  input: { minHeight: 50, borderRadius: radius.small, paddingHorizontal: 14, borderWidth: 1.5 },
+  input: { minHeight: 52, borderRadius: radius.medium, paddingHorizontal: 16, borderWidth: 1 },
 });

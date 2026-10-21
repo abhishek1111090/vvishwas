@@ -1,22 +1,38 @@
-import { View, ScrollView, Pressable, Alert, Linking, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { View, ScrollView, Alert, Linking, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ShieldCheck, AlertTriangle, PhoneCall, LogOut, Info, Lock, History, ChevronRight } from 'lucide-react-native';
+import { ShieldCheck, ShieldAlert, Zap, Phone, ChevronRight, Lock, History, LogOut, KeyRound, Users } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useContacts } from '../../context/ContactsContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { PermissionStatus } from '../../services/permissionsService';
-import { PermissionsList } from '../../features/permissions/PermissionsList';
-import { useBattery } from '../../utils/deviceHooks';
+import { PermissionsList, PERMISSION_ITEMS } from '../../features/permissions/PermissionsList';
 import { haptics } from '../../services/hapticService';
-import { Card, VText } from '../../components/ui';
-import { useTheme, withAlpha, radius, spacing } from '../../theme/theme';
+import { Card, Badge, IconTile, Avatar, SectionHeader, VText } from '../../components/ui';
+import { Enter, PressableScale } from '../../components/motion';
+import { BottomSheet, SheetHeader } from '../../components/BottomSheet';
+import { useTheme, radius, spacing } from '../../theme/theme';
 
 const HELPLINES = [
-  { number: '112', title: 'National Emergency', desc: 'All-in-one emergency response (Police, Fire, Medical)' },
-  { number: '1091', title: 'Women Helpline', desc: '24/7 dedicated support for women in distress' },
-  { number: '100', title: 'Police Direct', desc: 'Immediate police emergency dispatch' },
+  { number: '112', title: 'All-in-One Emergency', desc: 'Police, Fire, Ambulance' },
+  { number: '1091', title: 'Women Helpline', desc: '24/7 support for women in distress' },
+  { number: '100', title: 'Police', desc: 'Direct police dispatch' },
 ];
+
+function SettingsRow({ icon, title, subtitle, onPress, last }) {
+  const { colors } = useTheme();
+  return (
+    <PressableScale accessibilityRole="button" onPress={onPress} scaleTo={0.985} style={[styles.settingsRow, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+      <IconTile icon={icon} tone="muted" size={38} />
+      <View style={{ flex: 1 }}>
+        <VText variant="headline" style={{ fontSize: 15 }}>{title}</VText>
+        {subtitle ? <VText variant="caption" secondary>{subtitle}</VText> : null}
+      </View>
+      <ChevronRight size={18} color={colors.textTertiary} />
+    </PressableScale>
+  );
+}
 
 export default function Profile() {
   const { colors } = useTheme();
@@ -24,10 +40,10 @@ export default function Profile() {
   const { currentUser, signOut, isLocalOnly } = useAuth();
   const { contacts } = useContacts();
   const { statuses } = usePermissions();
-  const battery = useBattery();
+  const [showPermissions, setShowPermissions] = useState(false);
 
+  const granted = PERMISSION_ITEMS.filter((i) => statuses[i.kind] === PermissionStatus.granted).length;
   const isProtected = contacts.length > 0 && statuses.location === PermissionStatus.granted;
-  const initials = (currentUser?.fullName ?? 'V').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
 
   function confirmSignOut() {
     Alert.alert('Sign out?', 'Are you sure you want to sign out of VISHWAS?', [
@@ -38,113 +54,98 @@ export default function Profile() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
-      <View style={styles.topbar}>
-        <VText variant="headline">Account &amp; Security</VText>
-      </View>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Card>
-          <View style={styles.user}>
-            <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
-              <VText variant="title" color="#fff">{initials}</VText>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Enter index={0} style={styles.hero}>
+          <View style={{ flex: 1, gap: 4 }}>
+            <VText variant="overline" tertiary>Account &amp; Security</VText>
+            <VText variant="display" numberOfLines={2}>{currentUser?.fullName}</VText>
+            <VText variant="subheadline" secondary numberOfLines={1}>{currentUser?.email}</VText>
+            <View style={styles.badges}>
+              <Badge text={isProtected ? 'Protected' : 'Setup needed'} tone={isProtected ? 'safe' : 'warning'} icon={isProtected ? ShieldCheck : ShieldAlert} />
+              <Badge text={`${contacts.length} guardian${contacts.length === 1 ? '' : 's'}`} tone="outline" icon={Users} />
             </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <VText variant="title" numberOfLines={1}>{currentUser?.fullName}</VText>
-              <VText variant="subheadline" secondary numberOfLines={1}>{currentUser?.email}</VText>
-              <View style={styles.statusLine}>
-                {isProtected ? <ShieldCheck size={14} color={colors.safe} /> : <AlertTriangle size={14} color={colors.warning} />}
-                <VText variant="caption" color={isProtected ? colors.safe : colors.warning}>
-                  {isProtected ? 'Protection Active' : 'Setup Needed'}
+          </View>
+          <Avatar name={currentUser?.fullName} size={72} />
+        </Enter>
+
+        <Enter index={1}>
+          <Card>
+            <View style={styles.tipRow}>
+              <IconTile icon={Zap} tone="ink" size={44} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <VText variant="headline">Rapid SOS Shortcut</VText>
+                <VText variant="caption" secondary>
+                  Tap three times quickly anywhere in the app to send SOS instantly — no confirmation.
                 </VText>
               </View>
             </View>
-          </View>
-        </Card>
+          </Card>
+        </Enter>
 
-        <VText variant="caption" secondary style={styles.sectionTitle}>PERMISSIONS</VText>
-        <PermissionsList />
-
-        <Card>
-          <View style={styles.infoRow}>
-            <VText variant="subheadline">Trusted contacts</VText>
-            <VText variant="subheadline" color={contacts.length > 0 ? colors.safe : colors.warning}>
-              {contacts.length > 0 ? `${contacts.length} linked` : 'None added — alerts won’t reach anyone'}
-            </VText>
-          </View>
-          <View style={styles.infoRow}>
-            <VText variant="subheadline">Battery</VText>
-            <VText variant="subheadline" secondary>
-              {battery.level === null ? 'Not available on this device' : `${Math.round(battery.level * 100)}% · ${battery.charging ? 'Charging' : 'On battery'}`}
-            </VText>
-          </View>
-        </Card>
-
-        <Pressable accessibilityRole="button" onPress={() => router.push('/history')} style={[styles.link, { backgroundColor: colors.backgroundSecondary }]}>
-          <History size={18} color={colors.accent} />
-          <VText variant="headline" style={{ flex: 1 }}>Emergency History</VText>
-          <ChevronRight size={18} color={colors.textSecondary} />
-        </Pressable>
-
-        <VText variant="caption" secondary style={styles.sectionTitle}>EMERGENCY HELPLINES (ONE-TAP CALL)</VText>
-        {HELPLINES.map((h) => (
-          <Pressable
-            key={h.number}
-            accessibilityRole="button"
-            accessibilityLabel={`Call ${h.title} on ${h.number}`}
-            onPress={() => { haptics.selection(); Linking.openURL(`tel:${h.number}`); }}
-            style={[styles.helpline, { backgroundColor: colors.backgroundSecondary }]}
-          >
-            <View style={[styles.helpIcon, { backgroundColor: withAlpha(colors.emergency, 0.12) }]}>
-              <PhoneCall size={20} color={colors.emergency} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.infoRow}>
-                <VText variant="headline">{h.title}</VText>
-                <VText variant="headline" color={colors.emergency}>{h.number}</VText>
+        <Enter index={2}>
+          <SectionHeader title="Emergency direct helplines" right={<Badge text="24/7" tone="danger" />} />
+          <Card padded={false} style={{ marginTop: 10 }}>
+            {HELPLINES.map((h, i) => (
+              <View key={h.number} style={[styles.helpline, i < HELPLINES.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+                <View style={[styles.helpNum, { backgroundColor: colors.surfaceMuted }]}>
+                  <VText variant="headline" weight="heavy" style={{ fontSize: 14 }}>{h.number}</VText>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <VText variant="headline" style={{ fontSize: 15 }}>{h.title}</VText>
+                  <VText variant="caption" secondary>{h.desc}</VText>
+                </View>
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`Call ${h.title} on ${h.number}`}
+                  onPress={() => { haptics.selection(); Linking.openURL(`tel:${h.number}`); }}
+                  style={[styles.callPill, { backgroundColor: colors.ink }]}
+                >
+                  <Phone size={13} color={colors.onInk} />
+                  <VText variant="caption" color={colors.onInk} weight="bold">Call</VText>
+                </PressableScale>
               </View>
-              <VText variant="caption" secondary>{h.desc}</VText>
-            </View>
-          </Pressable>
-        ))}
+            ))}
+          </Card>
+        </Enter>
 
-        <Card>
-          <View style={styles.tip}>
-            <Info size={20} color={colors.accent} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <VText variant="headline">Triple-Tap Emergency Shortcut</VText>
-              <VText variant="caption" secondary>
-                In sudden danger, tap three times quickly anywhere in the app to trigger SOS instantly without confirmation.
-              </VText>
-            </View>
+        <Enter index={3}>
+          <SectionHeader title="Device & privacy controls" />
+          <Card padded={false} style={{ marginTop: 10 }}>
+            <SettingsRow icon={KeyRound} title="Protection & Permissions" subtitle={`${granted} of ${PERMISSION_ITEMS.length} allowed`} onPress={() => setShowPermissions(true)} />
+            <SettingsRow icon={History} title="Emergency History & Evidence" subtitle="Timelines, locations and recordings" onPress={() => router.push('/history')} last />
+          </Card>
+        </Enter>
+
+        <Enter index={4}>
+          <PressableScale accessibilityRole="button" onPress={confirmSignOut} style={[styles.signOut, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <LogOut size={18} color={colors.danger} />
+            <VText variant="headline" color={colors.danger}>Sign Out</VText>
+          </PressableScale>
+          <View style={styles.footer}>
+            <Lock size={12} color={colors.textTertiary} />
+            <VText variant="caption" tertiary>VISHWAS v1.0.0 · {isLocalOnly ? 'Account stored on this phone only' : 'Cloud account'}</VText>
           </View>
-        </Card>
-
-        <Pressable accessibilityRole="button" onPress={confirmSignOut} style={[styles.signOut, { borderColor: colors.separator }]}>
-          <LogOut size={18} color={colors.emergency} />
-          <VText variant="headline" color={colors.emergency}>Sign Out</VText>
-        </Pressable>
-
-        <View style={styles.footer}>
-          <Lock size={12} color={colors.textSecondary} />
-          <VText variant="caption" secondary>VISHWAS v1.0.0 · {isLocalOnly ? 'Account stored on this phone only' : 'Cloud account'}</VText>
-        </View>
+        </Enter>
       </ScrollView>
+
+      <BottomSheet isOpen={showPermissions} onClose={() => setShowPermissions(false)}>
+        <SheetHeader title="Permissions" onClose={() => setShowPermissions(false)} closeLabel="Done" />
+        <PermissionsList />
+      </BottomSheet>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  topbar: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, minHeight: 52, justifyContent: 'center' },
-  content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
-  user: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  avatar: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
-  statusLine: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  sectionTitle: { fontWeight: '700', letterSpacing: 0.6, marginTop: 4 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, minHeight: 32, flexWrap: 'wrap' },
-  link: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 52, paddingHorizontal: spacing.md, borderRadius: radius.medium },
-  helpline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.medium },
-  helpIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  tip: { flexDirection: 'row', gap: spacing.sm },
-  signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 52, borderWidth: 1.5, borderRadius: radius.medium },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: spacing.xxl, gap: 16 },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  helpline: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  helpNum: { minWidth: 48, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  callPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill },
+  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 54, borderWidth: 1.5, borderRadius: radius.pill },
+  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 },
 });

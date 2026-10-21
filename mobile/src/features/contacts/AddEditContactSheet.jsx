@@ -106,7 +106,7 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
       />
       <LabeledField label="Relationship (e.g. Mother, Friend)" kind="name" value={relationship} onChangeText={setRelationship} maxLength={LIMITS.relationshipMax} error={fieldErrors.relationship} />
 
-      <VText variant="caption" secondary>Priority Level</VText>
+      <VText variant="caption" weight="semibold" secondary>Priority Level</VText>
       <View style={[styles.segmented, { backgroundColor: colors.backgroundSecondary }]}>
         {PRIORITY_OPTIONS.map((level) => {
           const selected = priority === level;
@@ -116,9 +116,9 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
               accessibilityRole="button"
               accessibilityState={{ selected }}
               onPress={() => setPriority(level)}
-              style={[styles.segment, selected && { backgroundColor: colors.background }]}
+              style={[styles.segment, selected && { backgroundColor: colors.ink }]}
             >
-              <VText variant="subheadline" style={{ fontWeight: selected ? '700' : '400' }}>{PRIORITY_LABEL[level]}</VText>
+              <VText variant="subheadline" weight={selected ? 'bold' : 'regular'} color={selected ? colors.onInk : colors.textSecondary}>{PRIORITY_LABEL[level]}</VText>
             </Pressable>
           );
         })}
@@ -126,7 +126,7 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
 
       <View style={styles.favorite}>
         <VText variant="body">Mark as Favorite</VText>
-        <Switch accessibilityLabel="Mark as Favorite" value={isFavorite} onValueChange={setIsFavorite} trackColor={{ true: colors.accent }} />
+        <Switch accessibilityLabel="Mark as Favorite" value={isFavorite} onValueChange={setIsFavorite} trackColor={{ true: colors.ink }} />
       </View>
 
       {formError ? <VText variant="caption" color={colors.emergency} accessibilityRole="alert">{formError}</VText> : null}
@@ -138,7 +138,7 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
 const styles = StyleSheet.create({
   photo: { width: 84, height: 84, borderRadius: 42, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoImg: { width: 84, height: 84 },
-  segmented: { flexDirection: 'row', borderRadius: radius.small, padding: 3 },
-  segment: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  segmented: { flexDirection: 'row', borderRadius: radius.pill, padding: 4 },
+  segment: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
   favorite: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
 });

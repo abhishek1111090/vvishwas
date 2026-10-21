@@ -1,76 +1,69 @@
 import { useState } from 'react';
 import { View, ScrollView, Pressable, Image, Alert, Linking, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Plus, UsersRound, Star, Trash2, Phone, MessageSquare, X } from 'lucide-react-native';
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
+import { Plus, UsersRound, Star, Trash2, Phone, MessageSquare, X, UserPlus, BookUser, Info } from 'lucide-react-native';
 import { useContacts } from '../../context/ContactsContext';
 import { AddEditContactSheet } from '../../features/contacts/AddEditContactSheet';
 import { importContactFromPhone } from '../../features/contacts/importContact';
 import { PRIORITY, PRIORITY_LABEL } from '../../utils/constants';
 import { haptics } from '../../services/hapticService';
-import { PrimaryButton, VText } from '../../components/ui';
+import { Card, Badge, IconButton, IconTile, Avatar, SectionHeader, PrimaryButton, SecondaryButton, VText } from '../../components/ui';
+import { Enter, ProgressRing, PressableScale } from '../../components/motion';
 import { BottomSheet } from '../../components/BottomSheet';
-import { useTheme, withAlpha, radius, spacing } from '../../theme/theme';
+import { useTheme, radius, spacing } from '../../theme/theme';
 
-// Contacts — mirrors ContactsListView.swift: favourites section, all
-// contacts, empty state, add manually / import from the phone's contacts.
+// Contacts — mirrors ContactsListView.swift: favourites, everyone else,
+// empty state, add manually / import one contact from the phone.
 
-function priorityColor(priority, colors) {
-  if (priority === PRIORITY.primary) return colors.emergency;
-  if (priority === PRIORITY.secondary) return colors.info;
-  return colors.textSecondary;
-}
+const RECOMMENDED = 3;
+const PRIORITY_TONE = { [PRIORITY.primary]: 'ink', [PRIORITY.secondary]: 'outline', [PRIORITY.backup]: 'muted' };
 
-const initials = (name) => name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-
-function ContactRow({ contact, onEdit, onToggleFavorite, onDelete }) {
+function ContactRow({ contact, index, onEdit, onToggleFavorite, onDelete }) {
   const { colors } = useTheme();
-  const tint = priorityColor(contact.priority, colors);
   return (
-    <View style={[styles.row, { backgroundColor: colors.backgroundSecondary }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${contact.name}`} onPress={() => onEdit(contact)} style={styles.rowMain}>
-        {contact.profileImageDataUrl ? (
-          <Image source={{ uri: contact.profileImageDataUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, { backgroundColor: withAlpha(tint, 0.15) }]}>
-            <VText variant="headline" color={tint}>{initials(contact.name)}</VText>
+    <Animated.View
+      entering={FadeInDown.duration(380).delay(index * 50)}
+      exiting={FadeOut.duration(200)}
+      layout={LinearTransition.springify().damping(18)}
+    >
+      <Card padded={false}>
+        <PressableScale accessibilityRole="button" accessibilityLabel={`Edit ${contact.name}`} onPress={() => onEdit(contact)} scaleTo={0.985} style={styles.rowMain}>
+          {contact.profileImageDataUrl ? (
+            <Image source={{ uri: contact.profileImageDataUrl }} style={styles.photo} />
+          ) : (
+            <Avatar name={contact.name} size={46} tone={contact.priority === PRIORITY.primary ? 'ink' : 'muted'} />
+          )}
+          <View style={{ flex: 1, gap: 3 }}>
+            <View style={styles.nameLine}>
+              <VText variant="headline" numberOfLines={1} style={{ flexShrink: 1 }}>{contact.name}</VText>
+              {contact.isFavorite && <Star size={13} color={colors.gold} fill={colors.gold} />}
+            </View>
+            <VText variant="caption" secondary numberOfLines={1}>
+              {contact.relationship ? `${contact.relationship} · ${contact.phoneNumber}` : contact.phoneNumber}
+            </VText>
           </View>
-        )}
-        <View style={{ flex: 1, gap: 2 }}>
-          <View style={styles.nameLine}>
-            <VText variant="headline" numberOfLines={1} style={{ flexShrink: 1 }}>{contact.name}</VText>
-            {contact.isFavorite && <Star size={12} color="#ffcc00" fill="#ffcc00" />}
-          </View>
-          <VText variant="caption" secondary numberOfLines={1}>
-            {contact.relationship ? `${contact.relationship} · ${contact.phoneNumber}` : contact.phoneNumber}
-          </VText>
-          <View style={[styles.priority, { backgroundColor: withAlpha(tint, 0.12) }]}>
-            <VText variant="caption" color={tint} style={{ fontSize: 11, fontWeight: '700' }}>{PRIORITY_LABEL[contact.priority]}</VText>
-          </View>
+          <Badge text={PRIORITY_LABEL[contact.priority]} tone={PRIORITY_TONE[contact.priority]} />
+        </PressableScale>
+        <View style={[styles.actions, { borderTopColor: colors.border }]}>
+          <IconButton icon={Phone} label={`Call ${contact.name}`} size={36} onPress={() => { haptics.medium(); Linking.openURL(`tel:${contact.phoneNumber}`); }} />
+          <IconButton icon={MessageSquare} label={`SMS ${contact.name}`} size={36} onPress={() => { haptics.light(); Linking.openURL(`sms:${contact.phoneNumber}`); }} />
+          <View style={{ flex: 1 }} />
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={contact.isFavorite ? 'Unfavorite' : 'Favourite'}
+            onPress={() => { haptics.selection(); onToggleFavorite(contact.id); }}
+            scaleTo={0.85}
+            style={styles.ghostBtn}
+          >
+            <Star size={18} color={contact.isFavorite ? colors.gold : colors.textTertiary} fill={contact.isFavorite ? colors.gold : 'none'} />
+          </PressableScale>
+          <PressableScale accessibilityRole="button" accessibilityLabel="Delete" onPress={() => { haptics.warning(); onDelete(contact); }} scaleTo={0.85} style={styles.ghostBtn}>
+            <Trash2 size={18} color={colors.danger} />
+          </PressableScale>
         </View>
-      </Pressable>
-      <View style={styles.actions}>
-        <IconButton label={`Call ${contact.name}`} onPress={() => { haptics.medium(); Linking.openURL(`tel:${contact.phoneNumber}`); }}>
-          <Phone size={16} color={colors.safe} />
-        </IconButton>
-        <IconButton label={`SMS ${contact.name}`} onPress={() => { haptics.light(); Linking.openURL(`sms:${contact.phoneNumber}`); }}>
-          <MessageSquare size={16} color={colors.info} />
-        </IconButton>
-        <IconButton label={contact.isFavorite ? 'Unfavorite' : 'Favourite'} onPress={() => { haptics.selection(); onToggleFavorite(contact.id); }}>
-          <Star size={16} color={contact.isFavorite ? '#ffcc00' : colors.textSecondary} fill={contact.isFavorite ? '#ffcc00' : 'none'} />
-        </IconButton>
-        <IconButton label="Delete" onPress={() => { haptics.warning(); onDelete(contact); }}>
-          <Trash2 size={16} color={colors.emergency} />
-        </IconButton>
-      </View>
-    </View>
-  );
-}
-
-function IconButton({ label, onPress, children }) {
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={6} style={styles.iconButton}>
-      {children}
-    </Pressable>
+      </Card>
+    </Animated.View>
   );
 }
 
@@ -83,6 +76,7 @@ export default function ContactsScreen() {
 
   const favorites = contacts.filter((c) => c.isFavorite);
   const others = contacts.filter((c) => !c.isFavorite);
+  const strength = Math.min(contacts.length / RECOMMENDED, 1);
 
   function confirmDelete(contact) {
     Alert.alert('Remove contact?', `Remove ${contact.name} from your emergency contacts?`, [
@@ -109,52 +103,85 @@ export default function ContactsScreen() {
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={styles.topbar}>
-        <VText variant="headline">Emergency Contacts</VText>
-        <Pressable accessibilityRole="button" accessibilityLabel="Add contact" onPress={() => setShowMenu(true)} hitSlop={8} style={[styles.addBtn, { backgroundColor: withAlpha(colors.accent, 0.12) }]}>
-          <Plus size={20} color={colors.accent} />
-        </Pressable>
+        <View style={{ flex: 1 }}>
+          <VText variant="title">Emergency Contacts</VText>
+          <VText variant="caption" secondary>
+            {contacts.length} of {RECOMMENDED} recommended · alerted when you send SOS
+          </VText>
+        </View>
+        <IconButton icon={Plus} tone="ink" size={44} label="Add contact" onPress={() => setShowMenu(true)} />
       </View>
 
       {shownError ? (
-        <View style={[styles.error, { backgroundColor: withAlpha(colors.emergency, 0.1) }]} accessibilityRole="alert">
-          <VText variant="caption" color={colors.emergency} style={{ flex: 1 }}>{shownError}</VText>
+        <Animated.View entering={FadeInDown} style={[styles.error, { backgroundColor: colors.dangerTint }]} accessibilityRole="alert">
+          <VText variant="caption" color={colors.danger} style={{ flex: 1 }}>{shownError}</VText>
           <Pressable accessibilityLabel="Dismiss error" onPress={() => { clearError(); setImportError(null); }} hitSlop={8}>
-            <X size={16} color={colors.emergency} />
+            <X size={16} color={colors.danger} />
           </Pressable>
-        </View>
+        </Animated.View>
       ) : null}
 
       {contacts.length === 0 ? (
-        <View style={styles.empty}>
-          <UsersRound size={44} color={colors.textSecondary} />
-          <VText variant="headline">No Emergency Contacts Yet</VText>
+        <Enter index={0} style={styles.empty}>
+          <IconTile icon={UsersRound} tone="muted" size={72} />
+          <VText variant="title">No Emergency Contacts Yet</VText>
           <VText variant="subheadline" secondary style={{ textAlign: 'center' }}>
             Add at least one trusted contact so VISHWAS can alert someone when you need help.
           </VText>
-          <PrimaryButton onPress={() => setEditing(null)}>Add Contact</PrimaryButton>
-        </View>
+          <PrimaryButton icon={UserPlus} onPress={() => setEditing(null)}>Add Contact</PrimaryButton>
+        </Enter>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
           {favorites.length > 0 && (
             <>
-              <VText variant="caption" secondary style={styles.sectionTitle}>FAVORITES</VText>
-              {favorites.map((c) => (
-                <ContactRow key={c.id} contact={c} onEdit={setEditing} onToggleFavorite={toggleFavorite} onDelete={confirmDelete} />
+              <SectionHeader title="Favorites" right={<Badge text="Priority" tone="ink" />} />
+              {favorites.map((c, i) => (
+                <ContactRow key={c.id} index={i} contact={c} onEdit={setEditing} onToggleFavorite={toggleFavorite} onDelete={confirmDelete} />
               ))}
             </>
           )}
           {others.length > 0 && (
-            <VText variant="caption" secondary style={styles.sectionTitle}>{favorites.length === 0 ? 'ALL CONTACTS' : 'OTHER CONTACTS'}</VText>
+            <SectionHeader title={favorites.length === 0 ? 'All Contacts' : 'Other Contacts'} right={<VText variant="caption" tertiary>{others.length} contact{others.length === 1 ? '' : 's'}</VText>} />
           )}
-          {others.map((c) => (
-            <ContactRow key={c.id} contact={c} onEdit={setEditing} onToggleFavorite={toggleFavorite} onDelete={confirmDelete} />
+          {others.map((c, i) => (
+            <ContactRow key={c.id} index={i + favorites.length} contact={c} onEdit={setEditing} onToggleFavorite={toggleFavorite} onDelete={confirmDelete} />
           ))}
+
+          <Enter index={contacts.length + 1}>
+            <Card>
+              <View style={styles.networkRow}>
+                <ProgressRing size={58} stroke={6} progress={strength} color={strength >= 1 ? colors.safe : colors.ink} trackColor={colors.surfaceMuted}>
+                  <VText variant="caption" weight="bold">{contacts.length}/{RECOMMENDED}</VText>
+                </ProgressRing>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <VText variant="headline">Safety Network</VText>
+                  <VText variant="caption" secondary>
+                    {strength >= 1
+                      ? 'Great — you have enough people to reach in an emergency.'
+                      : `Add ${RECOMMENDED - contacts.length} more so someone is always reachable.`}
+                  </VText>
+                </View>
+              </View>
+            </Card>
+          </Enter>
+
+          <Enter index={contacts.length + 2}>
+            <Card>
+              <View style={styles.networkRow}>
+                <IconTile icon={Info} tone="muted" size={40} />
+                <VText variant="caption" secondary style={{ flex: 1 }}>
+                  On SOS, VISHWAS prepares one text with your live location for all contacts, ordered by priority. On iPhone you confirm it in Messages.
+                </VText>
+              </View>
+            </Card>
+          </Enter>
         </ScrollView>
       )}
 
       <BottomSheet isOpen={showMenu} onClose={() => setShowMenu(false)}>
-        <PrimaryButton onPress={() => { setShowMenu(false); setEditing(null); }}>Add Manually</PrimaryButton>
-        <PrimaryButton onPress={handleImport}>Import from Contacts</PrimaryButton>
+        <VText variant="title">Add a guardian</VText>
+        <PrimaryButton icon={UserPlus} onPress={() => { setShowMenu(false); setEditing(null); }}>Add Manually</PrimaryButton>
+        <SecondaryButton icon={BookUser} onPress={handleImport}>Import from Contacts</SecondaryButton>
         <VText variant="caption" secondary style={{ textAlign: 'center' }}>
           Import opens your phone’s contact picker. VISHWAS only receives the one contact you choose.
         </VText>
@@ -167,17 +194,14 @@ export default function ContactsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, minHeight: 52 },
-  addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  error: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: spacing.md, marginBottom: spacing.sm, padding: 10, borderRadius: radius.small },
+  topbar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12 },
+  error: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: spacing.sm, padding: 12, borderRadius: radius.medium },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
-  list: { padding: spacing.md, gap: 10, paddingBottom: spacing.xl },
-  sectionTitle: { fontWeight: '700', letterSpacing: 0.6, marginTop: 6 },
-  row: { borderRadius: radius.medium, padding: 12, gap: 8 },
-  rowMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
-  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  priority: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, marginTop: 2 },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4 },
-  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  list: { paddingHorizontal: 20, gap: 10, paddingBottom: spacing.xxl },
+  rowMain: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  photo: { width: 46, height: 46, borderRadius: 23 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  ghostBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  networkRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
 });

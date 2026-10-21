@@ -6,7 +6,7 @@ import { VText } from './ui';
 
 // BottomSheet — the one reusable equivalent of SwiftUI's
 // `.sheet(isPresented:)` (sign in/up, forgot password, add contact, SOS
-// confirm, coming soon). A transparent Modal sliding up from the bottom:
+// confirm, coming soon). A transparent Modal that slides up:
 //  • Android back button closes it (onRequestClose) when dismissible
 //  • KeyboardAvoidingView keeps focused fields above the keyboard
 //  • content scrolls on small screens
@@ -34,11 +34,11 @@ export function BottomSheet({ isOpen, onClose, dismissible = true, children, tes
           accessibilityViewIsModal
           style={[
             styles.sheet,
-            { backgroundColor: colors.background, paddingBottom: spacing.lg + insets.bottom, maxHeight: '92%' },
+            { backgroundColor: colors.surface, paddingBottom: spacing.lg + insets.bottom, maxHeight: '92%' },
           ]}
         >
-          {dismissible && <View style={[styles.grabber, { backgroundColor: colors.separator }]} />}
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+          {dismissible && <View style={[styles.grabber, { backgroundColor: colors.border }]} />}
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {children}
           </ScrollView>
         </View>
@@ -51,12 +51,18 @@ export function SheetHeader({ title, onClose, closeLabel = 'Cancel' }) {
   const { colors } = useTheme();
   return (
     <View style={styles.header}>
-      <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel={closeLabel} hitSlop={12} style={styles.close}>
-        <X size={18} color={colors.accent} />
-        <VText variant="subheadline" color={colors.accent}>{closeLabel}</VText>
+      <Pressable
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel={closeLabel}
+        hitSlop={12}
+        style={[styles.close, { backgroundColor: colors.surfaceMuted }]}
+      >
+        <X size={16} color={colors.textPrimary} />
+        <VText variant="caption" weight="semibold">{closeLabel}</VText>
       </Pressable>
       <VText variant="headline" style={styles.title} numberOfLines={1}>{title}</VText>
-      <View style={styles.close} />
+      <View style={styles.spacer} />
     </View>
   );
 }
@@ -68,13 +74,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderTopLeftRadius: radius.large,
-    borderTopRightRadius: radius.large,
-    paddingHorizontal: spacing.lg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
   },
-  grabber: { width: 36, height: 5, borderRadius: 3, alignSelf: 'center', marginTop: 10, marginBottom: 12 },
-  content: { gap: spacing.md, paddingTop: spacing.sm },
+  grabber: { width: 40, height: 5, borderRadius: 3, alignSelf: 'center', marginTop: 10, marginBottom: 10 },
+  content: { gap: 14, paddingTop: spacing.sm },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
-  close: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 80 },
+  close: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill },
+  spacer: { width: 80 },
   title: { flex: 1, textAlign: 'center' },
 });
