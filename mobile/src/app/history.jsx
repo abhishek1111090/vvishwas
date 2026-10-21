@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { View, ScrollView, Pressable, Alert, Linking, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAudioPlayer } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { ChevronLeft, ChevronDown, ChevronUp, MapPin, Trash2, History as HistoryIcon } from 'lucide-react-native';
-import { useEmergency } from '../../context/EmergencyContext';
-import { mapsUrl } from '../../services/locationService';
-import { ALERT_STATUS_LABEL } from '../../services/alertService';
-import { TRIGGER_SOURCE, SESSION_STATUS } from '../../utils/constants';
-import { formatDateTime, formatStandardTime, formatDuration } from '../../utils/formatDate';
-import { Card, VText } from '../../components/ui';
-import { useTheme, radius, spacing } from '../../theme/theme';
+import { useEmergency } from '../context/EmergencyContext';
+import { useAuth } from '../context/AuthContext';
+import { mapsUrl } from '../services/locationService';
+import { ALERT_STATUS_LABEL } from '../services/alertService';
+import { TRIGGER_SOURCE, SESSION_STATUS } from '../utils/constants';
+import { formatDateTime, formatStandardTime, formatDuration } from '../utils/formatDate';
+import { Card, VText } from '../components/ui';
+import { useTheme, radius, spacing } from '../theme/theme';
 
 // Emergency History — every ended SOS session with its timeline, the REAL
 // per-contact alert outcome, last location and playable evidence.
@@ -151,6 +152,7 @@ export default function HistoryScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { history, deleteHistoryItem } = useEmergency();
+  const { isAuthenticated } = useAuth();
 
   function confirmDelete(session) {
     Alert.alert(
@@ -163,8 +165,11 @@ export default function HistoryScreen() {
     );
   }
 
+  // Emergency history is private: signed-in users only.
+  if (!isAuthenticated) return <Redirect href="/auth" />;
+
   return (
-    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.screen, { backgroundColor: colors.background }]}>
       <View style={styles.topbar}>
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/home'))} hitSlop={10} style={styles.back}>
           <ChevronLeft size={22} color={colors.accent} />

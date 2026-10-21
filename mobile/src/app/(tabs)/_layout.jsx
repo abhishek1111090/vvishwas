@@ -12,7 +12,7 @@ import { useTheme } from '../../theme/theme';
 
 // Signed-in shell (mirrors AppShell + BottomNav in the web app):
 //  • guards: onboarding + sign-in required
-//  • bottom tabs: Home, Contacts, Account (History is a hidden tab)
+//  • bottom tabs: Home, Contacts, Account (History is a stacked screen)
 //  • THE global triple-tap SOS handler
 //  • the full-screen emergency overlay — an absolutely positioned layer
 //    above the tabs (not a Modal, so it can't clash with a closing sheet on
@@ -55,7 +55,6 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen name="profile" options={{ title: 'Account', tabBarIcon: ({ color }) => <CircleUserRound size={22} color={color} /> }} />
-        <Tabs.Screen name="history" options={{ href: null, title: 'History' }} />
       </Tabs>
 
       {emergency.isActive && (

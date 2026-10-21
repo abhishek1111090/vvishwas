@@ -66,7 +66,7 @@ const routes = {
   '(tabs)/home': require('../app/(tabs)/home'),
   '(tabs)/contacts': require('../app/(tabs)/contacts'),
   '(tabs)/profile': require('../app/(tabs)/profile'),
-  '(tabs)/history': require('../app/(tabs)/history'),
+  history: require('../app/history'),
 };
 
 async function seed({ onboarded = false, signedIn = false, contacts = [] } = {}) {
@@ -183,6 +183,38 @@ describe('VISHWAS app flows (Expo Router)', () => {
     await tap(); await tap(); await tap();
     expect(emergencyManager.getSnapshot().activeSession.id).toBe(id);
     expect(await screen.findByText('No emergency contacts saved — nobody was alerted.')).toBeTruthy();
+  });
+
+  it('History opens and lists a session with recordings', async () => {
+    await seed({ onboarded: true, signedIn: true });
+    await AsyncStorage.setItem(STORAGE_KEYS.emergencyHistory, JSON.stringify([{
+      id: 'h1', triggerSource: 'button', status: 'resolved',
+      startedAt: '2026-10-21T09:06:00.000Z', endedAt: '2026-10-21T09:07:00.000Z',
+      log: [{ id: 'l1', timestamp: '2026-10-21T09:06:00.000Z', message: 'Emergency activated', level: 'critical' }],
+      location: null, alerts: null,
+      recordings: {
+        audio: { status: 'saved', uri: 'file:///docs/recordings/h1/audio.m4a', bytes: 4096, error: null, interrupted: false },
+        video: { status: 'saved', uri: 'file:///docs/recordings/h1/video.mp4', bytes: 90000, error: null, interrupted: false },
+      },
+    }]));
+    const screen = await renderRouter(routes, { initialUrl: '/home' });
+    await fireEvent.press(await screen.findByText('See All'));
+    expect(screen.getPathname()).toBe('/history');
+    expect(await screen.findByText('Emergency History')).toBeTruthy();
+    await fireEvent.press(screen.getByText('SOS via SOS Button'));
+    expect(await screen.findByText('Play audio')).toBeTruthy();
+    expect(screen.getByText('Play video')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back'));
+    expect(await screen.findByText('Recent Activity')).toBeTruthy();
+    expect(screen.getPathname()).toBe('/home');
+  });
+
+  it('Account → Emergency History opens too', async () => {
+    await seed({ onboarded: true, signedIn: true });
+    const screen = await renderRouter(routes, { initialUrl: '/profile' });
+    await fireEvent.press(await screen.findByText('Emergency History'));
+    expect(screen.getPathname()).toBe('/history');
+    expect(await screen.findByText(/No emergencies yet/)).toBeTruthy();
   });
 
   it('a scroll-like touch does not count as a tap', async () => {
