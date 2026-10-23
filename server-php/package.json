@@ -1,0 +1,9 @@
+{
+  "name": "vishwas-server-php-tests",
+  "private": true,
+  "description": "Test runner for the VISHWAS PHP API (the API itself needs only PHP 8.1+ with pdo_pgsql and curl).",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test --test-timeout=60000 tests/api.test.js"
+  }
+}

@@ -1,0 +1,7 @@
+# Send every /api/... request to index.php, and pass the Authorization
+# header through (Apache + PHP-FPM drops it otherwise).
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]
+Options -Indexes
