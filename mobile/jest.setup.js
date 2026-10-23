@@ -63,3 +63,4 @@ jest.mock('expo-sensors', () => ({
     setUpdateInterval: jest.fn(),
   },
 }));
+jest.mock('@expo-google-fonts/archivo-black', () => ({ ArchivoBlack_400Regular: 1 }));

@@ -2,17 +2,21 @@ import { useState } from 'react';
 import { View, ScrollView, Alert, Linking, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ShieldCheck, ShieldAlert, Zap, Phone, ChevronRight, Lock, History, LogOut, KeyRound, Users } from 'lucide-react-native';
+import { ShieldCheck, ShieldAlert, Zap, Phone, ChevronRight, Lock, History, LogOut, KeyRound, Users, Mic } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useContacts } from '../../context/ContactsContext';
 import { usePermissions } from '../../context/PermissionsContext';
 import { PermissionStatus } from '../../services/permissionsService';
 import { PermissionsList, PERMISSION_ITEMS } from '../../features/permissions/PermissionsList';
+import { VoiceSetup } from '../../features/sos/VoiceSetup';
+import { useEmergency } from '../../context/EmergencyContext';
+import { VoiceStatus } from '../../services/voiceActivationService';
 import { haptics } from '../../services/hapticService';
 import { Card, Badge, IconTile, Avatar, SectionHeader, VText } from '../../components/ui';
-import { Enter, PressableScale } from '../../components/motion';
+import { Enter, PressableScale, AmbientBackground } from '../../components/motion';
 import { BottomSheet, SheetHeader } from '../../components/BottomSheet';
-import { useTheme, radius, spacing } from '../../theme/theme';
+import { TAB_BAR_SPACE } from '../../components/FloatingTabBar';
+import { useTheme, radius } from '../../theme/theme';
 
 const HELPLINES = [
   { number: '112', title: 'All-in-One Emergency', desc: 'Police, Fire, Ambulance' },
@@ -41,6 +45,8 @@ export default function Profile() {
   const { contacts } = useContacts();
   const { statuses } = usePermissions();
   const [showPermissions, setShowPermissions] = useState(false);
+  const [showVoice, setShowVoice] = useState(false);
+  const { voice } = useEmergency();
 
   const granted = PERMISSION_ITEMS.filter((i) => statuses[i.kind] === PermissionStatus.granted).length;
   const isProtected = contacts.length > 0 && statuses.location === PermissionStatus.granted;
@@ -54,6 +60,7 @@ export default function Profile() {
 
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
+      <AmbientBackground />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Enter index={0} style={styles.hero}>
           <View style={{ flex: 1, gap: 4 }}>
@@ -112,6 +119,12 @@ export default function Profile() {
           <SectionHeader title="Device & privacy controls" />
           <Card padded={false} style={{ marginTop: 10 }}>
             <SettingsRow icon={KeyRound} title="Protection & Permissions" subtitle={`${granted} of ${PERMISSION_ITEMS.length} allowed`} onPress={() => setShowPermissions(true)} />
+            <SettingsRow
+              icon={Mic}
+              title="Voice SOS"
+              subtitle={voice.status === VoiceStatus.listening ? `On — say “${voice.phrase}”` : voice.status === VoiceStatus.unavailable ? 'Needs the VISHWAS app build' : voice.enabled ? 'On — tap to check' : 'Set your own activation phrase'}
+              onPress={() => setShowVoice(true)}
+            />
             <SettingsRow icon={History} title="Emergency History & Evidence" subtitle="Timelines, locations and recordings" onPress={() => router.push('/history')} last />
           </Card>
         </Enter>
@@ -123,10 +136,26 @@ export default function Profile() {
           </PressableScale>
           <View style={styles.footer}>
             <Lock size={12} color={colors.textTertiary} />
-            <VText variant="caption" tertiary>VISHWAS v1.0.0 · {isLocalOnly ? 'Account stored on this phone only' : 'Cloud account'}</VText>
+            <VText variant="caption" tertiary>
+              VISHWAS v1.0.0 · {currentUser?.authProvider === 'server' ? 'Cloud account' : 'Account stored on this phone only'}
+            </VText>
+          </View>
+          <View style={styles.footer}>
+            <VText variant="caption" tertiary style={{ textAlign: 'center' }}>
+              {currentUser?.authProvider === 'server'
+                ? 'During an SOS your location, the SOS timeline and your recordings are backed up privately to your VISHWAS server. Only your account can open them.'
+                : isLocalOnly
+                  ? 'Everything stays on this phone.'
+                  : 'This account exists only on this phone, so nothing is backed up. Sign out and create a cloud account to back up SOS recordings.'}
+            </VText>
           </View>
         </Enter>
       </ScrollView>
+
+      <BottomSheet isOpen={showVoice} onClose={() => setShowVoice(false)}>
+        <SheetHeader title="Voice SOS" onClose={() => setShowVoice(false)} closeLabel="Done" />
+        {showVoice ? <VoiceSetup /> : null}
+      </BottomSheet>
 
       <BottomSheet isOpen={showPermissions} onClose={() => setShowPermissions(false)}>
         <SheetHeader title="Permissions" onClose={() => setShowPermissions(false)} closeLabel="Done" />
@@ -138,7 +167,7 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: spacing.xxl, gap: 16 },
+  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: TAB_BAR_SPACE, gap: 16 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   tipRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Pressable, Image, Switch, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { Camera } from 'lucide-react-native';
+import { Camera, BookUser } from 'lucide-react-native';
 import { BottomSheet, SheetHeader } from '../../components/BottomSheet';
 import { LabeledField } from '../../components/LabeledField';
 import { PrimaryButton, VText } from '../../components/ui';
@@ -10,10 +10,13 @@ import { useContacts } from '../../context/ContactsContext';
 import { PRIORITY, PRIORITY_LABEL } from '../../utils/constants';
 import { isNonEmpty, validatePhone, LIMITS } from '../../utils/validation';
 import { haptics } from '../../services/hapticService';
+import { toast } from '../../components/Toast';
 import { useTheme, radius } from '../../theme/theme';
 
 // AddEditContactSheet — mirrors AddEditContactView.swift. `contact: null`
-// adds, an object edits. Photos are picked with the system picker (no
+// adds, an object edits. `prefill` ({ name, phones }) comes from the phone's
+// contact book: the form opens filled in, the person picks which number to
+// use and adds relationship / priority before saving. Photos are picked with the system picker (no
 // library permission needed on iOS 14+) and downscaled to a 256px JPEG.
 
 const PRIORITY_OPTIONS = [PRIORITY.primary, PRIORITY.secondary, PRIORITY.backup];
@@ -28,7 +31,7 @@ async function pickPhoto() {
   return `data:image/jpeg;base64,${saved.base64}`;
 }
 
-export function AddEditContactSheet({ isOpen, onClose, contact }) {
+export function AddEditContactSheet({ isOpen, onClose, contact, prefill = null }) {
   const { colors } = useTheme();
   const { addContact, updateContact } = useContacts();
   const isEditing = contact != null;
@@ -47,13 +50,13 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
     if (!isOpen) return;
     setFieldErrors({});
     setFormError(null);
-    setName(contact?.name ?? '');
-    setPhoneNumber(contact?.phoneNumber ?? '');
+    setName(contact?.name ?? prefill?.name ?? '');
+    setPhoneNumber(contact?.phoneNumber ?? prefill?.phones?.[0]?.number ?? '');
     setRelationship(contact?.relationship ?? '');
     setPriority(contact?.priority ?? PRIORITY.secondary);
     setIsFavorite(contact?.isFavorite ?? false);
     setPhoto(contact?.profileImageDataUrl ?? null);
-  }, [isOpen, contact]);
+  }, [isOpen, contact, prefill]);
 
   const canSave = isNonEmpty(name) && isNonEmpty(phoneNumber) && !saving;
 
@@ -84,6 +87,7 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
       return;
     }
     haptics.light();
+    toast.show(isEditing ? `${name.trim()} updated` : `${name.trim()} added as a guardian`);
     onClose();
   }
 
@@ -96,6 +100,13 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
       </Pressable>
       {fieldErrors.photo ? <VText variant="caption" color={colors.emergency}>{fieldErrors.photo}</VText> : null}
 
+      {!isEditing && prefill ? (
+        <View style={[styles.fromBook, { backgroundColor: colors.backgroundSecondary }]}>
+          <BookUser size={16} color={colors.textSecondary} />
+          <VText variant="caption" secondary style={{ flex: 1 }}>From your contact book — check the details, then Save.</VText>
+        </View>
+      ) : null}
+
       <LabeledField label="Full Name" kind="name" value={name} onChangeText={setName} maxLength={LIMITS.nameMax} error={fieldErrors.name} />
       <LabeledField
         label="Phone Number (with country code, e.g. +91…)"
@@ -104,6 +115,29 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
         onChangeText={(v) => { setPhoneNumber(v); setFieldErrors((f) => ({ ...f, phoneNumber: null })); }}
         error={fieldErrors.phoneNumber}
       />
+      {!isEditing && prefill?.phones?.length > 1 ? (
+        <View style={{ gap: 6 }}>
+          <VText variant="caption" weight="semibold" secondary>Which number should VISHWAS alert?</VText>
+          <View style={styles.numbers}>
+            {prefill.phones.map((p) => {
+              const selected = phoneNumber === p.number;
+              return (
+                <Pressable
+                  key={p.number}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${p.label ?? 'Phone'} ${p.number}`}
+                  onPress={() => { haptics.selection(); setPhoneNumber(p.number); setFieldErrors((f) => ({ ...f, phoneNumber: null })); }}
+                  style={[styles.numberChip, { borderColor: selected ? colors.ink : colors.border, backgroundColor: selected ? colors.ink : 'transparent' }]}
+                >
+                  {p.label ? <VText variant="caption" color={selected ? colors.onInk : colors.textSecondary}>{p.label}</VText> : null}
+                  <VText variant="subheadline" weight="semibold" color={selected ? colors.onInk : colors.textPrimary}>{p.number}</VText>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       <LabeledField label="Relationship (e.g. Mother, Friend)" kind="name" value={relationship} onChangeText={setRelationship} maxLength={LIMITS.relationshipMax} error={fieldErrors.relationship} />
 
       <VText variant="caption" weight="semibold" secondary>Priority Level</VText>
@@ -136,6 +170,9 @@ export function AddEditContactSheet({ isOpen, onClose, contact }) {
 }
 
 const styles = StyleSheet.create({
+  fromBook: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: radius.medium },
+  numbers: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  numberChip: { borderWidth: 1, borderRadius: radius.medium, paddingHorizontal: 12, paddingVertical: 8 },
   photo: { width: 84, height: 84, borderRadius: 42, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoImg: { width: 84, height: 84 },
   segmented: { flexDirection: 'row', borderRadius: radius.pill, padding: 4 },

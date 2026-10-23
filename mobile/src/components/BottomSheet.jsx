@@ -11,7 +11,7 @@ import { VText } from './ui';
 //  • KeyboardAvoidingView keeps focused fields above the keyboard
 //  • content scrolls on small screens
 
-export function BottomSheet({ isOpen, onClose, dismissible = true, children, testID }) {
+export function BottomSheet({ isOpen, onClose, onDismissed, dismissible = true, children, testID }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -20,6 +20,7 @@ export function BottomSheet({ isOpen, onClose, dismissible = true, children, tes
       transparent
       animationType="slide"
       onRequestClose={() => { if (dismissible) onClose?.(); }}
+      onDismiss={onDismissed}
       statusBarTranslucent
     >
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.fill}>

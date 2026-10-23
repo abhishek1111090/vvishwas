@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { ToastHost } from '../components/Toast';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ShieldCheck } from 'lucide-react-native';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
+import { ArchivoBlack_400Regular } from '@expo-google-fonts/archivo-black';
 import { initStorage } from '../utils/storage';
 import { authService } from '../services/authService';
 import { emergencyManager } from '../services/emergencyManager';
@@ -24,7 +26,7 @@ export default function RootLayout() {
   const { colors } = useTheme();
   const [boot, setBoot] = useState({ ready: false, user: null });
   // If the font download fails we still start — Inter falls back to the system font.
-  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
+  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold, ArchivoBlack_400Regular });
 
   useEffect(() => {
     let cancelled = false;
@@ -59,8 +61,9 @@ export default function RootLayout() {
             <PermissionsProvider>
               <ContactsProvider>
                 <EmergencyProvider>
-                  <StatusBar style="auto" />
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+                  <StatusBar style="dark" />
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background }, animation: 'slide_from_right', animationDuration: 320, gestureEnabled: true }} />
+                  <ToastHost />
                 </EmergencyProvider>
               </ContactsProvider>
             </PermissionsProvider>

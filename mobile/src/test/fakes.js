@@ -56,15 +56,16 @@ export function fakeAlerts({ automatic, composer } = {}) {
     sendAutomatic: jest.fn(async (payload) => automatic ?? {
       method: 'manual',
       status: 'manualRequired',
-      recipients: payload.contacts.map((c) => ({ name: c.name, phoneNumber: c.phoneNumber, status: 'manualRequired' })),
+      recipients: payload.contacts.map((c) => ({ contactId: c.id, name: c.name, phoneNumber: c.phoneNumber, status: 'manualRequired' })),
       message: payload.message,
     }),
     sendViaComposer: jest.fn(async (payload) => composer ?? {
       method: 'sms',
       status: 'sentByUser',
-      recipients: payload.contacts.map((c) => ({ name: c.name, phoneNumber: c.phoneNumber, status: 'sentByUser' })),
+      recipients: payload.contacts.map((c) => ({ contactId: c.id, name: c.name, phoneNumber: c.phoneNumber, status: 'sentByUser' })),
       message: payload.message,
     }),
+    checkDelivery: jest.fn(async () => null),
   };
 }
 

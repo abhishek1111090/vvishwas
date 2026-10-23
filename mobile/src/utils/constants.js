@@ -10,9 +10,13 @@ export const STORAGE_KEYS = {
   localUsers: 'vishwas.local.users.v1',
   passwordPrefix: 'vishwas.pw.', // SecureStore key: `${passwordPrefix}${userId}`
   sessionUserId: 'vishwas.session.user_id', // SecureStore
+  serverSession: 'vishwas.server.session.v1', // SecureStore: { token, user } of a server account
   contacts: 'vishwas.contacts.v1',
   emergencyActive: 'vishwas.emergency.active.v1',   // in-progress session (survives app restarts)
   emergencyHistory: 'vishwas.emergency.history.v1', // ended sessions, newest first
+  cloudQueue: 'vishwas.cloud.queue.v1',             // pending server backups (SOS, locations, files)
+  cloudUploads: 'vishwas.cloud.uploads.v1',         // local file uri → 'pending' | 'uploaded' | 'failed'
+  voiceActivation: 'vishwas.voice.activation.v1',   // { enabled, phrase } for Voice SOS
 };
 
 export const EMERGENCY_HISTORY_LIMIT = 50;

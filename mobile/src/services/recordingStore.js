@@ -10,7 +10,7 @@ import { File, Directory, Paths } from 'expo-file-system';
  * Only a successful move is reported as 'saved'.
  */
 
-const DEFAULT_EXT = { audio: '.m4a', video: '.mp4' };
+const DEFAULT_EXT = { audio: '.m4a', video: '.mp4', photo: '.jpg' };
 
 export async function saveRecording({ uri, sessionId, kind, fs = { File, Directory, Paths } }) {
   if (!uri) return { status: 'error', error: `No ${kind} file was produced.`, bytes: 0 };

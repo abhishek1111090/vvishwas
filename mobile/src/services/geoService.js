@@ -15,7 +15,7 @@ import * as Location from 'expo-location';
  */
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org/reverse';
-const USER_AGENT = 'VISHWAS-Safety/1.0 (com.vishwas.safety)';
+export const USER_AGENT = 'VISHWAS-Safety/1.0 (com.vishwas.safety)';
 const TIMEOUT_MS = 5000;
 const MIN_INTERVAL_MS = 1100;
 
@@ -30,16 +30,23 @@ export function osmUrl(location) {
 /** Turn a Nominatim `address` object into display parts. */
 export function formatOsmAddress(json) {
   const a = json?.address ?? {};
-  const building = json?.name || a.building || a.amenity || a.shop || a.office || a.tourism || null;
+  // Nominatim returns the NEAREST mapped object. A building or place name is
+  // where the person is; a shop/amenity/office may just be next door, so it
+  // is shown as a landmark ("Near …") rather than claimed as the location.
+  const isBuilding = !json?.category || ['building', 'place', 'landuse'].includes(json.category);
+  const name = json?.name || a.building || null;
+  const building = isBuilding ? name : null;
+  const landmark = !isBuilding && json?.category !== 'highway' ? json?.name || a.amenity || a.shop || a.office || a.tourism || null : null;
   const street = [a.house_number, a.road ?? a.pedestrian ?? a.footway].filter(Boolean).join(' ') || null;
   const area = a.neighbourhood ?? a.suburb ?? a.quarter ?? a.residential ?? a.city_district ?? null;
   const city = a.city ?? a.town ?? a.village ?? a.county ?? null;
-  const lines = [building, street, area, [city, a.postcode].filter(Boolean).join(' ') || null, a.state].filter(Boolean);
+  const lines = [building ?? (landmark ? `Near ${landmark}` : null), street, area, [city, a.postcode].filter(Boolean).join(' ') || null, a.state].filter(Boolean);
   // Drop accidental duplicates (e.g. building name equal to road).
   const unique = lines.filter((l, i) => lines.indexOf(l) === i);
   return {
     label: unique.join(', ') || json?.display_name || null,
     building,
+    landmark,
     street,
     area,
     city,

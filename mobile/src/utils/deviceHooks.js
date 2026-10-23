@@ -48,10 +48,12 @@ export function useBattery() {
 
 /**
  * Dashboard location status. Permission alone isn't proof that location
- * works, so when granted this takes ONE balanced fix (or a recent cached
- * one) and reports what actually happened.
+ * works, so when granted this takes a real high-accuracy fix, refreshes it
+ * every 20 s while the screen is mounted, and reports what actually happened.
  * state: 'off' | 'checking' | 'ok' | 'error'
  */
+const REFRESH_MS = 20_000;
+
 export function useLocationStatus(permissionStatus) {
   const granted = permissionStatus === PermissionStatus.granted;
   const [result, setResult] = useState({ state: 'checking', location: null, error: null });
@@ -68,9 +70,15 @@ export function useLocationStatus(permissionStatus) {
   useEffect(() => {
     if (!granted) return undefined;
     let cancelled = false;
-    locationService.getCurrent().then((res) => { if (!cancelled) apply(res); });
-    return () => { cancelled = true; };
-  }, [granted, apply]);
+    const refresh = () => locationService.getCurrent().then((res) => {
+      if (cancelled) return;
+      // A failed refresh keeps showing the last good fix rather than flickering to an error.
+      setResult((prev) => (res.location || !prev.location ? (res.location ? { state: 'ok', location: res.location, error: null } : { state: 'error', location: null, error: res.error }) : prev));
+    });
+    refresh();
+    const id = setInterval(refresh, REFRESH_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [granted]);
 
   if (!granted) return { state: 'off', location: null, error: null, recheck };
   return { ...result, recheck };

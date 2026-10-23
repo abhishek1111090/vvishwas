@@ -6,7 +6,7 @@ function fakeLocationModule({ permission = 'granted', servicesOn = true } = {}) 
   const sub = { remove: jest.fn() };
   return {
     Accuracy: { High: 4, Balanced: 3 },
-    emitFix: (lat = 26.9, lng = 75.8) => cb({ coords: { latitude: lat, longitude: lng, accuracy: 9.6 }, timestamp: 1_700_000_000_000 }),
+    emitFix: (lat = 26.9, lng = 75.8, accuracy = 9.6) => cb({ coords: { latitude: lat, longitude: lng, accuracy }, timestamp: 1_700_000_000_000 }),
     emitError: (reason) => errCb(reason),
     sub,
     getForegroundPermissionsAsync: jest.fn(async () => ({ status: permission })),
@@ -92,7 +92,51 @@ describe('locationService', () => {
     expect((await p).latitude).toBe(3);
   });
 
+  it('waitForFix does not send a rough first fix while GPS is locking on', async () => {
+    jest.useFakeTimers();
+    try {
+      const loc = fakeLocationModule();
+      const svc = createLocationService(loc);
+      await svc.start();
+      const p = svc.waitForFix(15_000, { settleMs: 6000 });
+      loc.emitFix(3, 4, 900);   // Wi-Fi/cell estimate
+      loc.emitFix(5, 6, 12);    // GPS lock
+      expect(await p).toMatchObject({ latitude: 5, accuracy: 12 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('waitForFix uses the best rough fix once the settle time passes', async () => {
+    jest.useFakeTimers();
+    try {
+      const loc = fakeLocationModule();
+      const svc = createLocationService(loc);
+      await svc.start();
+      const p = svc.waitForFix(15_000, { settleMs: 6000 });
+      loc.emitFix(3, 4, 900);
+      loc.emitFix(7, 8, 80);
+      loc.emitFix(9, 9, 300);
+      jest.advanceTimersByTime(6000);
+      expect(await p).toMatchObject({ latitude: 7, accuracy: 80 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('getCurrent only reuses a recent, precise cached fix', async () => {
+    const loc = fakeLocationModule();
+    await createLocationService(loc).getCurrent();
+    expect(loc.getLastKnownPositionAsync).toHaveBeenCalledWith({ maxAge: 60_000, requiredAccuracy: 50 });
+  });
+
   it('builds a maps link', () => {
     expect(mapsUrl({ latitude: 1.5, longitude: 2.5 })).toBe('https://www.google.com/maps/search/?api=1&query=1.5,2.5');
+  });
+});
+
+describe('mapsUrl precision', () => {
+  it('rounds coordinates to 6 decimals', () => {
+    expect(mapsUrl({ latitude: 26.84285030934916, longitude: 75.56562556933694 })).toBe('https://www.google.com/maps/search/?api=1&query=26.84285,75.565626');
   });
 });

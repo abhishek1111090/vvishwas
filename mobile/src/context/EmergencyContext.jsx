@@ -7,6 +7,8 @@ import { emergencyManager } from '../services/emergencyManager';
 import { emergencyController } from '../services/emergencyController';
 import { recordingService } from '../services/recordingService';
 import { locationService } from '../services/locationService';
+import { voiceActivationService } from '../services/voiceActivationService';
+import { cloudSync } from '../services/cloudSync';
 import { useContacts } from './ContactsContext';
 import { useAuth } from './AuthContext';
 
@@ -34,6 +36,33 @@ export function EmergencyProvider({ children }) {
   const recordingSnap = useSyncExternalStore(recordingService.subscribe, recordingService.getSnapshot);
   const locationSnap = useSyncExternalStore(locationService.subscribe, locationService.getSnapshot);
   const cameraAllowed = useSyncExternalStore(emergencyController.subscribeCamera, emergencyController.isCameraAllowed);
+  const voice = useSyncExternalStore(voiceActivationService.subscribe, voiceActivationService.getSnapshot);
+
+  // Voice SOS: the saved phrase triggers the SAME path as the SOS button.
+  useEffect(() => {
+    voiceActivationService.init((source) => emergencyController.startEmergency(source));
+  }, []);
+
+  // Server backup: send anything left over (app was closed or offline) once signed in.
+  useEffect(() => {
+    if (currentUser) cloudSync.process();
+  }, [currentUser]);
+
+  // The SOS audio recording needs the microphone, so stop listening during an
+  // emergency; resume a moment after it ends (the recorder releases the mic).
+  useEffect(() => {
+    if (emergencySnap.isActive) {
+      voiceActivationService.pause('sos');
+      return undefined;
+    }
+    const t = setTimeout(() => voiceActivationService.resume('sos'), 2500);
+    return () => clearTimeout(t);
+  }, [emergencySnap.isActive]);
+
+  useEffect(() => {
+    if (currentUser) voiceActivationService.resume('signedOut');
+    else voiceActivationService.pause('signedOut');
+  }, [currentUser]);
 
   useEffect(() => {
     emergencyController.setContext({ contacts, user: currentUser });
@@ -51,8 +80,15 @@ export function EmergencyProvider({ children }) {
   useEffect(() => {
     let last = AppState.currentState;
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' && last !== 'background') emergencyController.onAppStateChange(false);
-      if (state === 'active' && last === 'background') emergencyController.onAppStateChange(true);
+      if (state === 'background' && last !== 'background') {
+        emergencyController.onAppStateChange(false);
+        voiceActivationService.pause('background'); // the OS stops app speech recognition in the background
+      }
+      if (state === 'active' && last === 'background') {
+        emergencyController.onAppStateChange(true);
+        cloudSync.process();
+        voiceActivationService.resume('background');
+      }
       last = state;
     });
     return () => sub.remove();
@@ -62,7 +98,8 @@ export function EmergencyProvider({ children }) {
    * THE single SOS trigger for UI code:
    *   • SOS confirm sheet "Yes — Send Alert" → trigger('button')
    *   • triple-tap in the tab shell           → trigger('tripleTap')
-   * Both end in emergencyManager.trigger(source).
+   *   • saved voice phrase heard              → startEmergency('voice')
+   * All end in emergencyManager.trigger(source).
    */
   const trigger = useCallback((source) => emergencyController.startEmergency(source), []);
   const resolve = useCallback(() => emergencyController.endEmergency('resolve'), []);
@@ -71,6 +108,11 @@ export function EmergencyProvider({ children }) {
   const restartRecording = useCallback(() => emergencyController.restartRecording(), []);
   const deleteHistoryItem = useCallback((id) => emergencyManager.deleteHistoryItem(id), []);
   const setConfirmedFloor = useCallback((value) => emergencyController.setConfirmedFloor(value), []);
+  const changeCamera = useCallback((apply, description) => emergencyController.changeCamera(apply, description), []);
+  const takePhoto = useCallback(() => emergencyController.takePhoto(), []);
+  const saveVoice = useCallback((settings) => voiceActivationService.save(settings), []);
+  const requestVoicePermission = useCallback(() => voiceActivationService.requestPermission(), []);
+  const setVoiceTestMode = useCallback((on) => voiceActivationService.setTestMode(on), []);
 
   const value = useMemo(
     () => ({
@@ -90,6 +132,7 @@ export function EmergencyProvider({ children }) {
 
       audio: recordingSnap.audio,
       video: recordingSnap.video,
+      photos: recordingSnap.photos ?? [],
       cameraAllowed,
 
       trigger,
@@ -99,8 +142,16 @@ export function EmergencyProvider({ children }) {
       restartRecording,
       deleteHistoryItem,
       setConfirmedFloor,
+      changeCamera,
+      takePhoto,
+
+      voice,
+      voiceAvailable: voiceActivationService.isAvailable(),
+      saveVoice,
+      requestVoicePermission,
+      setVoiceTestMode,
     }),
-    [emergencySnap, locationSnap, recordingSnap, cameraAllowed, trigger, resolve, cancel, openSmsComposer, restartRecording, deleteHistoryItem, setConfirmedFloor]
+    [emergencySnap, locationSnap, recordingSnap, cameraAllowed, voice, trigger, resolve, cancel, openSmsComposer, restartRecording, deleteHistoryItem, setConfirmedFloor, changeCamera, takePhoto, saveVoice, requestVoicePermission, setVoiceTestMode]
   );
 
   return <EmergencyContext.Provider value={value}>{children}</EmergencyContext.Provider>;

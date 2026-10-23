@@ -11,9 +11,18 @@ import * as Location from 'expo-location';
  *  • FOREGROUND ONLY — background location is blocked in app.json and not
  *    available in Expo Go, so it is never claimed.
  *
- * Battery: high-accuracy watching only runs during an active emergency;
- * the dashboard uses one balanced-accuracy fix (last known if recent).
+ * Battery: continuous high-accuracy watching only runs during an active
+ * emergency; the dashboard takes a fresh high-accuracy fix now and then.
+ *
+ * Accuracy: a phone's FIRST fix is often a rough Wi-Fi/cell estimate
+ * (±65 m to several km). Anything that has to be precise waits a few
+ * seconds for a GPS-grade fix and otherwise uses the best one it saw.
  */
+
+/** A fix at or below this radius is treated as GPS-grade. */
+export const GOOD_ACCURACY_M = 25;
+/** Above this radius the phone is probably giving an approximate location (iOS "Precise Location" off). */
+export const COARSE_ACCURACY_M = 200;
 
 export const LocationErrorKind = {
   permissionDenied: 'permissionDenied',
@@ -63,7 +72,9 @@ function toLocation(position) {
 
 export function mapsUrl(location) {
   if (!location) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+  // 6 decimals ≈ 0.1 m — more digits only make the SMS longer.
+  const r = (n) => Number(n.toFixed(6));
+  return `https://www.google.com/maps/search/?api=1&query=${r(location.latitude)},${r(location.longitude)}`;
 }
 
 const INITIAL = {
@@ -172,13 +183,17 @@ export function createLocationService(loc = Location) {
       _notify({ ...INITIAL });
     },
 
-    /** One-shot, battery-friendly fix for the dashboard. Never throws. */
+    /**
+     * One-shot fix for the dashboard. Uses the last known position only if
+     * it is under a minute old AND precise; otherwise asks for a fresh
+     * high-accuracy fix. Never throws.
+     */
     async getCurrent() {
       const problem = await preflight();
       if (problem) return { errorKind: problem, error: FRIENDLY[problem] };
       try {
-        const recent = await loc.getLastKnownPositionAsync({ maxAge: 5 * 60_000, requiredAccuracy: 200 });
-        const position = recent ?? (await loc.getCurrentPositionAsync({ accuracy: loc.Accuracy.Balanced }));
+        const recent = await loc.getLastKnownPositionAsync({ maxAge: 60_000, requiredAccuracy: 50 });
+        const position = recent ?? (await loc.getCurrentPositionAsync({ accuracy: loc.Accuracy.High }));
         const location = toLocation(position);
         if (!location) return { errorKind: LocationErrorKind.unavailable, error: FRIENDLY.unavailable };
         return { location };
@@ -189,25 +204,48 @@ export function createLocationService(loc = Location) {
     },
 
     /**
-     * Wait (up to timeoutMs) for the first real fix. Gives up immediately
-     * when location can't work at all, so an SOS alert isn't held back.
+     * Wait for a usable fix for the SOS alert:
+     *  • resolves at once with a GPS-grade fix (±GOOD_ACCURACY_M or better);
+     *  • otherwise keeps the most accurate fix seen and resolves with it
+     *    `settleMs` after the first fix (a rough first fix is not sent while
+     *    GPS is still locking on);
+     *  • resolves with whatever exists after `timeoutMs`, and immediately
+     *    when location can't work at all, so the alert is never held back.
      */
-    waitForFix(timeoutMs = 15_000) {
+    waitForFix(timeoutMs = 15_000, { settleMs = 6000 } = {}) {
       const hopeless = () =>
         snapshot.status === 'error' &&
         [LocationErrorKind.permissionDenied, LocationErrorKind.servicesDisabled, LocationErrorKind.unsupported]
           .includes(snapshot.errorKind);
-      if (snapshot.location && snapshot.status === 'tracking') return Promise.resolve(snapshot.location);
+      const precise = (l) => l && Number.isFinite(l.accuracy) && l.accuracy <= GOOD_ACCURACY_M;
+      const better = (a, b) => (!b ? a : (a.accuracy ?? Infinity) <= (b.accuracy ?? Infinity) ? a : b);
+      const fresh = () => (snapshot.status === 'tracking' ? snapshot.location : null);
+
+      if (precise(fresh())) return Promise.resolve(snapshot.location);
       if (hopeless()) return Promise.resolve(snapshot.location);
       return new Promise((resolve) => {
-        const timer = setTimeout(() => { unsub(); resolve(snapshot.location); }, timeoutMs);
+        let best = fresh();
+        let settle = null;
+        const finish = (value) => {
+          clearTimeout(timer);
+          clearTimeout(settle);
+          unsub();
+          resolve(value);
+        };
+        const armSettle = () => {
+          if (!settle) settle = setTimeout(() => finish(best), settleMs);
+        };
+        const timer = setTimeout(() => finish(best ?? snapshot.location), timeoutMs);
         const unsub = this.subscribe(() => {
-          if ((snapshot.location && snapshot.status === 'tracking') || hopeless()) {
-            clearTimeout(timer);
-            unsub();
-            resolve(snapshot.location);
-          }
+          if (hopeless()) return finish(best ?? snapshot.location);
+          const l = fresh();
+          if (!l) return undefined;
+          best = better(l, best);
+          if (precise(l)) return finish(l);
+          armSettle();
+          return undefined;
         });
+        if (best) armSettle();
       });
     },
   };

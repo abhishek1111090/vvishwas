@@ -3,6 +3,7 @@ import { createFloorService, estimateFloorFromPressure, floorLabel } from '../se
 import { buildAlertMessage, buildAlertPayload, describeFloor } from '../services/alertService';
 
 const OSM_JSON = {
+  category: 'building',
   name: 'Sunrise Apartments',
   display_name: 'Sunrise Apartments, 12, MG Road, Indiranagar, Bengaluru, Karnataka, 560038, India',
   address: { house_number: '12', road: 'MG Road', suburb: 'Indiranagar', city: 'Bengaluru', postcode: '560038', state: 'Karnataka', country: 'India' },
@@ -43,6 +44,18 @@ describe('geoService (OpenStreetMap reverse geocoding)', () => {
   it('reports failure instead of inventing an address', async () => {
     const geo = createGeoService({ fetchImpl: jest.fn(async () => { throw new Error('offline'); }), location: { reverseGeocodeAsync: jest.fn(async () => []) } });
     expect(await geo.reverseGeocode(LOC)).toEqual({ error: 'offline' });
+  });
+
+  it('names a nearby shop as a landmark, not as where the person is', () => {
+    const a = formatOsmAddress({ category: 'shop', name: 'Bath & Body Works', address: { road: '100 Feet Road', suburb: 'Indiranagar', city: 'Bengaluru', postcode: '560038' } });
+    expect(a.label).toBe('Near Bath & Body Works, 100 Feet Road, Indiranagar, Bengaluru 560038');
+    expect(a.building).toBeNull();
+    expect(a.landmark).toBe('Bath & Body Works');
+  });
+
+  it('does not repeat the road name as a landmark', () => {
+    const a = formatOsmAddress({ category: 'highway', name: 'MG Road', address: { road: 'MG Road', city: 'Bengaluru' } });
+    expect(a.label).toBe('MG Road, Bengaluru');
   });
 
   it('builds an OpenStreetMap link', () => {
@@ -110,7 +123,7 @@ describe('alert text with address and floor', () => {
     const msg = buildAlertMessage({ ...base, floor: { confirmed: 5, estimate: { floor: 4, uncertainty: 2 } } });
     expect(msg).toMatch(/Address: Sunrise Apartments, 12 MG Road, Bengaluru 560038\./);
     expect(msg).toMatch(/Floor: 5th floor \(confirmed by them\)\./);
-    expect(msg).toMatch(/openstreetmap\.org/);
+    expect(msg).toMatch(/My current location: https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=12\.97194,77\.64111/);
     expect(msg).toMatch(/±6 m/);
   });
 
@@ -132,5 +145,21 @@ describe('alert text with address and floor', () => {
     expect(p.address).toEqual({ label: 'X', source: 'openstreetmap' });
     expect(p.floor).toEqual({ confirmed: 3, estimate: null });
     expect(p.location.osmUrl).toMatch(/openstreetmap/);
+  });
+});
+
+describe('OsmMap tile maths', () => {
+  const { tileView } = require('../components/OsmMap');
+  it('centres the point inside a 3×3 tile block', () => {
+    const v = tileView(0, 0, 1); // 2×2 world: the point is the corner of tile 1/1
+    expect(v.px).toBeCloseTo(256);
+    expect(v.py).toBeCloseTo(256);
+    expect(v.tiles.map((t) => t.key)).toContain('1/1/1');
+  });
+  it('uses real OSM tile URLs and metres per pixel', () => {
+    const v = tileView(12.97194, 77.64111, 16);
+    expect(v.tiles).toHaveLength(9);
+    expect(v.tiles[4].uri).toBe('https://tile.openstreetmap.org/16/46902/30386.png');
+    expect(v.metresPerPixel).toBeCloseTo(2.33, 1);
   });
 });

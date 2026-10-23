@@ -22,7 +22,7 @@ describe('alertService', () => {
   });
 
   it('says location is unavailable instead of inventing one', () => {
-    expect(buildAlertMessage({ user: null, location: null, triggerSource: 'button', startedAt: session.startedAt })).toMatch(/not available yet/);
+    expect(buildAlertMessage({ user: null, location: null, triggerSource: 'button', startedAt: session.startedAt })).toMatch(/My current location could not be determined\./);
   });
 
   it('orders contacts by priority then favorite', () => {
@@ -51,7 +51,7 @@ describe('alertService', () => {
   it('maps the Messages composer result honestly', async () => {
     const sms = fakeSms('sent');
     const sent = await createAlertService({ sms }).sendViaComposer(payload());
-    expect(sms.sendSMSAsync).toHaveBeenCalledWith(['+919876543210', '9812345678'], expect.stringMatching(/^EMERGENCY/));
+    expect(sms.sendSMSAsync).toHaveBeenCalledWith(['+919876543210', '9812345678'], expect.stringMatching(/^🚨 EMERGENCY ALERT! I need help immediately\./));
     expect(sent.status).toBe(AlertStatus.sentByUser);
     expect((await createAlertService({ sms: fakeSms('cancelled') }).sendViaComposer(payload())).status).toBe(AlertStatus.cancelled);
     expect((await createAlertService({ sms: fakeSms('unknown') }).sendViaComposer(payload())).status).toBe(AlertStatus.composerOpened);

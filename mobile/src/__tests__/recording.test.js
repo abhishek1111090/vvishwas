@@ -76,7 +76,7 @@ describe('recordingService', () => {
     const cam = fakeCamera();
     s.attachCamera(cam);
     await s.startVideo('s1');
-    expect(cam.recordAsync).toHaveBeenCalledWith({ maxDuration: 3600 });
+    expect(cam.recordAsync).toHaveBeenCalledWith({ maxDuration: 3600, codec: 'avc1' }); // H.264 so clips play on WhatsApp
     expect((await s.startVideo('s1')).duplicate).toBe(true);
     const { video } = await s.stopAll();
     expect(cam.stopRecording).toHaveBeenCalled();

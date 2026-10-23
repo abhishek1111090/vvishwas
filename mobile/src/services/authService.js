@@ -1,10 +1,14 @@
 /**
- * authService.js — on-device accounts
+ * authService.js — accounts
  *
- * VISHWAS has no authentication server yet, so accounts are DEVICE-LOCAL:
- * an account created on one phone exists only on that phone (the UI says
- * so). The functions keep the signatures a server-backed version would
- * have, so wiring in a real API later doesn't touch the UI.
+ * Two modes, chosen by whether the VISHWAS server is configured
+ * (EXPO_PUBLIC_VISHWAS_API_URL):
+ *  • SERVER accounts (configured): sign up / in against /auth/register and
+ *    /auth/login. The server stores only a scrypt hash; the app keeps the
+ *    session token in SecureStore. A saved session is reused offline, so
+ *    SOS never depends on reaching the server.
+ *  • DEVICE-LOCAL accounts (not configured, or an account created before the
+ *    server existed): exist only on this phone, as before.
  *
  * Storage:
  *  • user profiles (name, email)      → AsyncStorage (not secret)
@@ -23,7 +27,7 @@ import { secureGetJSON, secureSetJSON, secureRemove } from '../utils/secureStora
 import { STORAGE_KEYS } from '../utils/constants';
 import { isStrongEnoughPassword, isValidEmail, isNonEmpty, normalizeEmail, LIMITS } from '../utils/validation';
 import { generateUUID } from '../utils/uuid';
-import { apiPost, isApiConfigured } from './apiClient';
+import { apiPost, apiGet, isApiConfigured, setAuthToken } from './apiClient';
 
 export class AuthError extends Error {}
 
@@ -79,13 +83,55 @@ function publicUser(user) {
   return { id, fullName, email, authProvider, createdAt };
 }
 
+/** Server error → message for the person (never raw technical text). */
+function serverAuthError(err, fallback) {
+  if (err?.code === 'NETWORK' || err?.code === 'TIMEOUT') return new AuthError('Can’t reach the VISHWAS server. Check your internet connection and try again.');
+  if (err?.status === 429) return new AuthError('Too many attempts. Wait a few minutes and try again.');
+  if (err?.status >= 500) return new AuthError('The VISHWAS server is having a problem. Try again shortly.');
+  return new AuthError(err?.message || fallback);
+}
+
 const pwKey = (id) => `${STORAGE_KEYS.passwordPrefix}${id}`;
 
-export function createAuthService({ hashIterations = PBKDF2_ITERATIONS } = {}) {
+export function createAuthService({ hashIterations = PBKDF2_ITERATIONS, serverMode = isApiConfigured } = {}) {
+  async function saveServerSession({ token, user }) {
+    const session = { token, user: { ...user, authProvider: 'server' } };
+    await secureSetJSON(STORAGE_KEYS.serverSession, session);
+    setAuthToken(token);
+    return session.user;
+  }
+
+  async function restoreServerSession() {
+    const saved = await secureGetJSON(STORAGE_KEYS.serverSession, null);
+    if (!saved?.token || !saved.user) return null;
+    setAuthToken(saved.token);
+    try {
+      const { user } = await apiGet('/auth/me', { timeoutMs: 5000 });
+      const fresh = { ...user, authProvider: 'server' };
+      await secureSetJSON(STORAGE_KEYS.serverSession, { token: saved.token, user: fresh });
+      return fresh;
+    } catch (err) {
+      if (err?.status === 401) {
+        // Expired or signed out elsewhere: ask to sign in again.
+        setAuthToken(null);
+        await secureRemove(STORAGE_KEYS.serverSession);
+        return null;
+      }
+      // Offline / server down: keep the person signed in (SOS must keep working).
+      return saved.user;
+    }
+  }
+
   return {
-    isLocalOnly: true,
+    get isLocalOnly() {
+      return !serverMode();
+    },
 
     async restoreSession() {
+      if (serverMode()) {
+        const user = await restoreServerSession();
+        if (user) return user;
+      }
       const userId = await secureGetJSON(STORAGE_KEYS.sessionUserId, null);
       if (!userId) return null;
       const user = loadUsers().find((u) => u.id === userId);
@@ -101,6 +147,20 @@ export function createAuthService({ hashIterations = PBKDF2_ITERATIONS } = {}) {
       if (!isNonEmpty(name) || name.length > LIMITS.nameMax) throw new AuthError(ERRORS.invalidName);
       if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
       if (!isStrongEnoughPassword(password)) throw new AuthError(ERRORS.weakPassword);
+
+      if (serverMode()) {
+        let res;
+        try {
+          res = await apiPost('/auth/register', { fullName: name, email: normalizeEmail(email), password });
+        } catch (err) {
+          throw serverAuthError(err, 'Could not create your account.');
+        }
+        try {
+          return await saveServerSession(res);
+        } catch {
+          throw new AuthError(ERRORS.storageFailed);
+        }
+      }
 
       const users = loadUsers();
       const normalized = normalizeEmail(email);
@@ -122,6 +182,29 @@ export function createAuthService({ hashIterations = PBKDF2_ITERATIONS } = {}) {
     async signIn({ email, password }) {
       if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
       const normalized = normalizeEmail(email);
+
+      if (serverMode()) {
+        let res;
+        try {
+          res = await apiPost('/auth/login', { email: normalized, password: password ?? '' });
+        } catch (err) {
+          // An account made on this phone before the server existed still signs in locally.
+          if (err?.status === 401 && loadUsers().some((u) => normalizeEmail(u.email) === normalized)) {
+            return this.signInLocal({ email: normalized, password });
+          }
+          throw serverAuthError(err, ERRORS.invalidCredentials);
+        }
+        try {
+          return await saveServerSession(res);
+        } catch {
+          throw new AuthError(ERRORS.storageFailed);
+        }
+      }
+      return this.signInLocal({ email: normalized, password });
+    },
+
+    async signInLocal({ email, password }) {
+      const normalized = normalizeEmail(email);
       const user = loadUsers().find((u) => normalizeEmail(u.email) === normalized);
       // Same message for unknown email and wrong password.
       if (!user) throw new AuthError(ERRORS.invalidCredentials);
@@ -137,17 +220,24 @@ export function createAuthService({ hashIterations = PBKDF2_ITERATIONS } = {}) {
 
     async sendPasswordReset({ email }) {
       if (!isValidEmail(email)) throw new AuthError(ERRORS.invalidEmail);
-      if (!isApiConfigured()) throw new AuthError(ERRORS.resetNotConfigured);
+      if (!serverMode()) throw new AuthError(ERRORS.resetNotConfigured);
       try {
         await apiPost('/auth/forgot-password', { email: normalizeEmail(email) });
       } catch (err) {
-        throw new AuthError(err?.message ?? 'Could not request a password reset.');
+        throw serverAuthError(err, 'Could not request a password reset.');
       }
     },
 
-    canResetPassword: () => isApiConfigured(),
+    canResetPassword: () => serverMode(),
 
     async signOut() {
+      const saved = await secureGetJSON(STORAGE_KEYS.serverSession, null);
+      if (saved?.token) {
+        // Best effort: end the session on the server too; signing out on the phone never waits on it.
+        apiPost('/auth/logout', {}, { timeoutMs: 5000 }).catch(() => {});
+      }
+      setAuthToken(null);
+      await secureRemove(STORAGE_KEYS.serverSession);
       await secureRemove(STORAGE_KEYS.sessionUserId);
     },
   };

@@ -155,7 +155,7 @@ describe('VISHWAS app flows (Expo Router)', () => {
     expect(emergencyManager.getSnapshot().isActive).toBe(false);
 
     await fireEvent(button, 'pressIn');
-    expect(await screen.findByText('🚨 Emergency Active', {}, { timeout: 4000 })).toBeTruthy();
+    expect(await screen.findByText('EMERGENCY ACTIVE', {}, { timeout: 4000 })).toBeTruthy();
     expect(emergencyManager.getSnapshot().activeSession.triggerSource).toBe('button');
   });
 
@@ -165,9 +165,9 @@ describe('VISHWAS app flows (Expo Router)', () => {
     await fireEvent(await screen.findByTestId('sos-button'), 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
     await fireEvent.press(await screen.findByText('Yes — Send Alert'));
 
-    expect(await screen.findByText('🚨 Emergency Active')).toBeTruthy();
-    expect(await screen.findByText('26.90000°')).toBeTruthy();
-    expect(screen.getByText('75.80000°')).toBeTruthy();
+    expect(await screen.findByText('EMERGENCY ACTIVE')).toBeTruthy();
+    expect(await screen.findByText(/^26\.90000, 75\.80000 · ±\d+ m$/)).toBeTruthy();
+    expect(screen.getAllByTestId('osm-map').length).toBeGreaterThan(0);
     // Camera permission denied in this test → video honestly off, and the log says why.
     expect(await screen.findByText('Camera access not allowed')).toBeTruthy();
     await fireEvent.press(screen.getByText('Activity Log'));
@@ -175,12 +175,12 @@ describe('VISHWAS app flows (Expo Router)', () => {
     // jest-expo runs as iOS: with no server, Messages opens automatically.
     // The mock reports 'unknown', so the app must NOT claim it was sent.
     const sms = require('expo-sms');
-    await waitFor(() => expect(sms.sendSMSAsync).toHaveBeenCalledWith(['+919876543210'], expect.stringMatching(/^EMERGENCY: Priya Sharma/)));
+    await waitFor(() => expect(sms.sendSMSAsync).toHaveBeenCalledWith(['+919876543210'], expect.stringMatching(/^🚨 EMERGENCY ALERT!.*— Priya Sharma, via VISHWAS/)));
     expect(await screen.findByText('SMS app opened — not confirmed sent')).toBeTruthy();
     expect(screen.getByText('Text contacts')).toBeTruthy(); // can retry
 
     await fireEvent.press(screen.getByText("I'm Safe — End Emergency"));
-    await waitFor(() => expect(screen.queryByText('🚨 Emergency Active')).toBeNull(), { timeout: 6000 });
+    await waitFor(() => expect(screen.queryByText('EMERGENCY ACTIVE')).toBeNull(), { timeout: 6000 });
     expect(await screen.findByText('Resolved')).toBeTruthy();
     expect(JSON.parse(await AsyncStorage.getItem(STORAGE_KEYS.emergencyHistory))[0].status).toBe('resolved');
   }, 20000);
@@ -194,7 +194,7 @@ describe('VISHWAS app flows (Expo Router)', () => {
       await fireEvent(shell, 'touchEnd', { nativeEvent: { pageX: 101, pageY: 101 } });
     };
     await tap(); await tap(); await tap();
-    expect(await screen.findByText('🚨 Emergency Active')).toBeTruthy();
+    expect(await screen.findByText('EMERGENCY ACTIVE')).toBeTruthy();
     expect(screen.queryByText('Trigger Emergency?')).toBeNull();
     const id = emergencyManager.getSnapshot().activeSession.id;
     await tap(); await tap(); await tap();
