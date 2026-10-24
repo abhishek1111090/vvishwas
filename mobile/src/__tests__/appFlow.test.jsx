@@ -53,7 +53,7 @@ jest.mock('expo-contacts', () => ({ Contact: { presentPicker: jest.fn(async () =
 jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn() }));
 jest.mock('expo-image-manipulator', () => ({ ImageManipulator: {}, SaveFormat: { JPEG: 'jpeg' } }));
 jest.mock('expo-file-system', () => ({ File: class {}, Directory: class {}, Paths: {} }));
-jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
+jest.mock('expo-status-bar', () => ({ ...jest.requireActual('expo-status-bar'), StatusBar: () => null }));
 // Icons are irrelevant to these flows (and ship as .mjs, which Jest won't load).
 jest.mock('lucide-react-native', () => new Proxy({ __esModule: true }, { get: (t, k) => (k in t ? t[k] : () => null) }));
 
@@ -229,6 +229,13 @@ describe('VISHWAS app flows (Expo Router)', () => {
     expect(screen.getByText('Play video')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(await screen.findByText('Recent Activity')).toBeTruthy();
+  });
+
+  it('tapping a tab in the floating tab bar switches screens', async () => {
+    await seed({ onboarded: true, signedIn: true, contacts: [ASHA] });
+    const screen = await renderRouter(routes, { initialUrl: '/home' });
+    await fireEvent.press(await screen.findByRole('tab', { name: 'Contacts, 1' }));
+    expect(screen).toHavePathname('/contacts');
   });
 
   it('Account → Emergency History opens too', async () => {

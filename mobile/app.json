@@ -84,7 +84,8 @@
           "microphonePermission": "VISHWAS records audio evidence when you trigger an SOS, and listens for your Voice SOS phrase while the app is open. Recordings are stored privately on this phone.",
           "speechRecognitionPermission": "VISHWAS listens for the Voice SOS phrase you chose so it can start an emergency without you touching the phone."
         }
-      ]
+      ],
+      "expo-status-bar"
     ]
   }
 }

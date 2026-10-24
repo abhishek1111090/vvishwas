@@ -56,8 +56,11 @@ function TabButton({ label, focused, onPress, onLongPress, onLayout, children, d
   );
 }
 
-export function FloatingTabBar({ state, descriptors, navigation, insets }) {
+// Expo Router 58 hands custom tab bars `emitter` + `navigateToTab`; older versions passed `navigation`.
+export function FloatingTabBar({ state, descriptors, emitter, navigateToTab, navigation, insets }) {
   const { colors } = useTheme();
+  const emit = (event) => (emitter ?? navigation).emit(event);
+  const goTo = (route) => (navigateToTab ? navigateToTab(route.key) : navigation.navigate(route.name, route.params));
   const [layouts, setLayouts] = useState({});
   const x = useSharedValue(0);
   const width = useSharedValue(0);
@@ -123,10 +126,10 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }) {
                 setLayouts((prev) => (prev[route.key]?.x === lx && prev[route.key]?.width === lw ? prev : { ...prev, [route.key]: { x: lx, width: lw } }));
               }}
               onPress={() => {
-                const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-                if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
+                const event = emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                if (!focused && !event.defaultPrevented) goTo(route);
               }}
-              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+              onLongPress={() => emit({ type: 'tabLongPress', target: route.key })}
             >
               {options.tabBarIcon?.({ focused, color, size: 26 })}
             </TabButton>

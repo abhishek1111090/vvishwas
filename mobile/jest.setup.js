@@ -43,8 +43,10 @@ jest.mock('expo-audio', () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
 }));
 
-// Animations: Reanimated's official Jest mock (animations complete instantly).
-jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+// Animations: a small local stand-in (animations complete instantly).
+jest.mock('react-native-reanimated', () => require('./jest.reanimated-mock'));
+// expo-router's test helpers re-mock Reanimated with its official mock; route that here too.
+jest.mock('react-native-reanimated/mock', () => require('./jest.reanimated-mock'));
 // Fonts load instantly in tests.
 jest.mock('expo-font', () => ({ useFonts: () => [true, null], isLoaded: () => true, loadAsync: async () => {} }));
 jest.mock('@expo-google-fonts/inter', () => ({
