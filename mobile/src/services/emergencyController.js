@@ -328,7 +328,9 @@ export function createEmergencyController({
 
       const { session } = result;
       haptics.emergencyTrigger();
-      cloud.sosStarted(session, context.contacts ?? []); // server backup; never delays the SOS
+      // Server backup; never delays the SOS. Its emergency link goes into the alert text.
+      const backup = cloud.sosStarted(session, context.contacts ?? []);
+      if (backup?.shareUrl) manager.update({ shareUrl: backup.shareUrl });
       attachWatchers(session.id);
 
       log('🎙 Requesting microphone…');

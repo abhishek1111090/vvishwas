@@ -68,8 +68,17 @@ function route_data(App $app, string $method, string $path): ?array
         $b = read_json();
         $clientId = str_in($b['clientId'] ?? null, 100);
         if ($clientId === '') throw new HttpError(400, 'BAD_CLIENT_ID', 'clientId is required.');
+        // The emergency link's token (see share.php): only its hash is stored.
+        $share = $b['shareToken'] ?? null;
+        if ($share !== null && (!is_string($share) || !preg_match(SHARE_TOKEN_RE, $share))) throw new HttpError(400, 'BAD_SHARE_TOKEN', 'Invalid share token.');
+        $shareHash = $share === null ? null : token_hash($share);
         $existing = $app->one('SELECT * FROM sos_events WHERE user_id = ? AND client_id = ?', [$user['id'], $clientId]);
-        if ($existing) return [200, ['event' => public_event($existing), 'duplicate' => true]];
+        if ($existing) {
+            if ($shareHash !== null && $existing['share_token_hash'] === null) {
+                $app->q('UPDATE sos_events SET share_token_hash = ? WHERE id = ?', [$shareHash, $existing['id']]);
+            }
+            return [200, ['event' => public_event($existing), 'duplicate' => true]];
+        }
 
         $trigger = in_array($b['triggerSource'] ?? null, TRIGGERS, true) ? $b['triggerSource'] : 'button';
         $started = client_time($b['startedAt'] ?? null) ?? now_iso();
@@ -78,8 +87,8 @@ function route_data(App $app, string $method, string $path): ?array
         ], array_slice(is_array($b['contacts'] ?? null) ? $b['contacts'] : [], 0, 20));
         try {
             $now = now_iso();
-            $app->q('INSERT INTO sos_events (id, user_id, client_id, trigger_source, status, started_at, received_at, updated_at, contacts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [uuid4(), $user['id'], $clientId, $trigger, 'active', $started, $now, $now, json_encode($contacts, JSON_UNESCAPED_UNICODE)]);
+            $app->q('INSERT INTO sos_events (id, user_id, client_id, trigger_source, status, started_at, received_at, updated_at, contacts, share_token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [uuid4(), $user['id'], $clientId, $trigger, 'active', $started, $now, $now, json_encode($contacts, JSON_UNESCAPED_UNICODE), $shareHash]);
         } catch (PDOException $e) {
             if (!$app->isConflict($e)) throw $e; // a concurrent retry created it first
         }

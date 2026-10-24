@@ -171,6 +171,69 @@ test('recordings: upload once, list, Range playback, owner-only, size/type limit
   } finally { t.close(); }
 });
 
+test('emergency link: opens only that SOS (location + playable recordings), nothing else', async () => {
+  const t = await setup();
+  try {
+    const a = (await t.call('POST', '/auth/register', { body: ALICE })).json.token;
+    const b = (await t.call('POST', '/auth/register', { body: { fullName: 'Other', email: 'other@example.com', password: 'other-password' } })).json.token;
+    const share = require('node:crypto').randomBytes(32).toString('base64url');
+    const otherShare = require('node:crypto').randomBytes(32).toString('base64url');
+    assert.equal((await t.call('POST', '/sos', { token: a, body: { clientId: 'sess-s', triggerSource: 'button', shareToken: 'short' } })).status, 400);
+    assert.equal((await t.call('POST', '/sos', { token: a, body: { clientId: 'sess-s', triggerSource: 'button', shareToken: share, location: { latitude: 26.9124, longitude: 75.7873, accuracy: 9 } } })).status, 201);
+    await t.call('POST', '/sos', { token: a, body: { clientId: 'sess-other', triggerSource: 'button' } }); // Alice's other SOS: no link
+    await t.call('POST', '/sos', { token: b, body: { clientId: 'sess-s', triggerSource: 'button', shareToken: otherShare } }); // same clientId, other user
+    await t.call('POST', '/location', { token: a, body: { sosClientId: 'sess-s', latitude: 26.913, longitude: 75.788, accuracy: 5 } });
+    const audio = Buffer.from('fake-m4a-audio-bytes-0123456789');
+    const video = Buffer.from('fake-mp4-video-bytes');
+    const upA = await t.call('POST', '/recordings?sosClientId=sess-s&kind=audio&part=1', { token: a, raw: audio, headers: { 'Content-Type': 'audio/mp4' } });
+    await t.call('POST', '/recordings?sosClientId=sess-s&kind=video&part=1', { token: a, raw: video, headers: { 'Content-Type': 'video/mp4' } });
+    const elsewhere = await t.call('POST', '/recordings?sosClientId=sess-other&kind=audio&part=1', { token: a, raw: audio, headers: { 'Content-Type': 'audio/mp4' } });
+    const bobs = await t.call('POST', '/recordings?sosClientId=sess-s&kind=audio&part=1', { token: b, raw: audio, headers: { 'Content-Type': 'audio/mp4' } });
+
+    const page = await t.call('GET', `/share/${share}`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    assert.match(page.headers.get('content-security-policy'), /default-src 'none'/);
+    assert.match(page.text, /Anshu Sharma/);
+    assert.ok(!page.text.includes('9876543210') && !page.text.includes('anshu@example.com'));
+
+    const data = (await t.call('GET', `/share/${share}/data`)).json;
+    assert.equal(data.name, 'Anshu Sharma');
+    assert.equal(data.status, 'active');
+    assert.deepEqual(data.locations.map((l) => l.latitude), [26.9124, 26.913]);
+    assert.deepEqual(data.recordings.map((r) => `${r.kind}${r.part}`).sort(), ['audio1', 'video1']);
+    assert.equal(data.contacts, undefined);
+
+    const rec = (id, headers) => t.call('GET', `/share/${share}/r/${id}`, { headers });
+    assert.equal((await rec(upA.json.recording.id)).text, audio.toString());
+    const ranged = await rec(data.recordings.find((r) => r.kind === 'video').id, { Range: 'bytes=0-7' });
+    assert.equal(ranged.status, 206);
+    assert.equal(ranged.text, 'fake-mp4');
+    assert.equal((await rec(elsewhere.json.recording.id)).status, 404); // Alice's other SOS
+    assert.equal((await rec(bobs.json.recording.id)).status, 404);      // someone else's file
+
+    const otherData = (await t.call('GET', `/share/${otherShare}/data`)).json;
+    assert.equal(otherData.name, 'Other');
+    assert.equal(otherData.recordings.length, 1);
+    assert.notEqual(otherData.recordings[0].id, upA.json.recording.id);
+
+    const unknown = await t.call('GET', `/share/${require('node:crypto').randomBytes(32).toString('base64url')}`);
+    assert.equal(unknown.status, 404);
+    assert.match(unknown.text, /Link not available/);
+    assert.equal((await t.call('GET', `/share/${share}x/data`)).status, 404);
+
+    // Retried SOS keeps working; ending it keeps the link open (expires share_days after the end).
+    assert.equal((await t.call('POST', '/sos', { token: a, body: { clientId: 'sess-s', shareToken: share } })).json.duplicate, true);
+    await t.call('PATCH', '/sos/sess-s', { token: a, body: { status: 'resolved', endedAt: new Date().toISOString() } });
+    assert.equal((await t.call('GET', `/share/${share}/data`)).json.status, 'resolved');
+    const old = new Date(Date.now() - 9 * 86400e3).toISOString();
+    await t.call('PATCH', '/sos/sess-s', { token: a, body: { endedAt: old } });
+    assert.equal((await t.call('GET', `/share/${share}/data`)).status, 404);
+  } finally { t.close(); }
+});
+
 test('password reset: honest when mail is off; full single-use flow when on', async () => {
   const off = await setup({ mail: false });
   try {

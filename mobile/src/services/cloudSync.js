@@ -1,4 +1,5 @@
-import { apiPost, apiPatch, apiUploadFile, hasAuthToken, isApiConfigured } from './apiClient';
+import * as Crypto from 'expo-crypto';
+import { apiPost, apiPatch, apiUploadFile, getApiBaseUrl, hasAuthToken, isApiConfigured } from './apiClient';
 import { contentTypeFor } from './evidenceService';
 import { readJSON, writeJSON } from '../utils/storage';
 import { STORAGE_KEYS } from '../utils/constants';
@@ -31,6 +32,14 @@ const metres = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
+/** 256-bit random token, base64url — the secret part of an emergency link. */
+export function newShareToken(randomBytes = Crypto.getRandomBytes) {
+  const bytes = randomBytes(32);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+  return globalThis.btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 /** Every saved file of an SOS → upload items with stable kind/part numbers. */
 export function uploadsFor(clientId, recordings) {
   if (!recordings) return [];
@@ -61,6 +70,8 @@ export function createCloudSync({
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   now = () => Date.now(),
+  makeShareToken = newShareToken,
+  baseUrl = getApiBaseUrl,
 } = {}) {
   let queue = null;
   let status = null;
@@ -96,7 +107,7 @@ export function createCloudSync({
   async function send(item) {
     switch (item.type) {
       case 'sos':
-        return post('/sos', { clientId: item.clientId, triggerSource: item.triggerSource, startedAt: item.startedAt, contacts: item.contacts });
+        return post('/sos', { clientId: item.clientId, triggerSource: item.triggerSource, startedAt: item.startedAt, contacts: item.contacts, shareToken: item.shareToken });
       case 'loc':
         return post('/location', { sosClientId: item.clientId, latitude: item.latitude, longitude: item.longitude, accuracy: item.accuracy, recordedAt: item.recordedAt });
       case 'end':
@@ -165,14 +176,30 @@ export function createCloudSync({
       return queue.length;
     },
 
+    /**
+     * Queue the SOS for the server. For signed-in server accounts it also
+     * returns the emergency link for the alert text: <server>/share/<token>
+     * opens this SOS's location and recordings (and nothing else) once the
+     * server has it. The token is made here, so the link exists even if the
+     * phone is offline when the alert goes out. null when not backing up.
+     */
     sosStarted(session, contacts = []) {
+      if (!isSignedIn()) return null;
+      let shareToken = null;
+      try {
+        shareToken = makeShareToken();
+      } catch {
+        shareToken = null; // no secure randomness: back up without a link rather than a guessable one
+      }
       enqueue([{
         type: 'sos',
         clientId: session.id,
         triggerSource: session.triggerSource,
         startedAt: session.startedAt,
         contacts: contacts.map((c) => ({ id: c.id, name: c.name, phoneNumber: c.phoneNumber })),
+        ...(shareToken ? { shareToken } : {}),
       }]);
+      return shareToken ? { shareUrl: `${baseUrl()}/share/${shareToken}` } : null;
     },
 
     /** Throttled: at most every 30 s, or after moving 50 m. */

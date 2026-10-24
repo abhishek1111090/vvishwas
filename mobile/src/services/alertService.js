@@ -107,7 +107,7 @@ export function describeFloor(floor) {
 
 export const ALERT_PREFIX = '🚨 EMERGENCY ALERT!';
 
-export function buildAlertMessage({ user, location, triggerSource, startedAt, address, floor }) {
+export function buildAlertMessage({ user, location, triggerSource, startedAt, address, floor, shareUrl }) {
   const parts = [
     `${ALERT_PREFIX} I need help immediately. My SOS has been activated. Please contact me as soon as possible and help me if needed.`,
   ];
@@ -116,6 +116,7 @@ export function buildAlertMessage({ user, location, triggerSource, startedAt, ad
   const floorText = describeFloor(floor);
   if (floorText) parts.push(`Floor: ${floorText}.`);
   if (location) parts.push(`(GPS ±${location.accuracy ?? '?'} m at ${new Date(location.timestamp).toLocaleTimeString()})`);
+  if (shareUrl) parts.push(`Live location and my video/audio recordings: ${shareUrl}`);
   // Server texts arrive from the SMS provider's number, so say who this is.
   const who = user?.fullName?.trim();
   const when = new Date(startedAt).toLocaleString();
@@ -149,7 +150,8 @@ export function buildAlertPayload({ session, location, contacts, user }) {
       : null,
     user: user ? { id: user.id, fullName: user.fullName } : null,
     ...(({ send, skipped }) => ({ contacts: send, skipped }))(planRecipients(contacts)),
-    message: buildAlertMessage({ user, location, triggerSource: session.triggerSource, startedAt: session.startedAt, address, floor }),
+    shareUrl: session.shareUrl ?? null,
+    message: buildAlertMessage({ user, location, triggerSource: session.triggerSource, startedAt: session.startedAt, address, floor, shareUrl: session.shareUrl }),
   };
 }
 

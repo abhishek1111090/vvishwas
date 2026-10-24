@@ -86,6 +86,14 @@ eas build --profile production --platform ios
 ```
 `eas.json` already uses `https://adabhishek1.in/api` for preview/production builds.
 
+## Emergency links in SOS texts
+Each SOS from a server account carries a link `https://adabhishek1.in/api/share/<token>`.
+It opens that one SOS's location and its uploaded video/audio/photos, with no sign-in. Only a
+hash of the token is stored (`sos_events.share_token_hash`). The link stops working `share_days`
+(default 7, optional in config.php) after the SOS ends. Recordings appear on the page once the
+phone has uploaded them (after the SOS ends). The links use the app's server address, so links
+sent while testing through a temporary tunnel stop working when that tunnel stops.
+
 ## Updating later
 Git → Pull Updates → Deploy now. `httpdocs/api` only needs re-copying if `public/api` changes.
 Database changes are applied automatically (additive migrations, never destructive).

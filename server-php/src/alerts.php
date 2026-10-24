@@ -206,7 +206,7 @@ function route_alerts(App $app, string $method, string $path, string $ip): ?arra
         if ($existing) return [200, alert_view($app, $sessionId, json_decode((string) $existing['recipients'], true) ?: []) + ['duplicate' => true]];
 
         $message = trim((string) ($b['message'] ?? ''));
-        if (!str_starts_with($message, ALERT_PREFIX) || mb_strlen($message) > 800) throw new HttpError(400, 'BAD_MESSAGE', 'Only VISHWAS emergency alerts can be sent.');
+        if (!str_starts_with($message, ALERT_PREFIX) || mb_strlen($message) > 1200) throw new HttpError(400, 'BAD_MESSAGE', 'Only VISHWAS emergency alerts can be sent.');
         $contacts = is_array($b['contacts'] ?? null) ? $b['contacts'] : [];
         if (!$contacts) throw new HttpError(400, 'NO_CONTACTS', 'No contacts to alert.');
         if (count($contacts) > 10) throw new HttpError(400, 'TOO_MANY', 'At most 10 contacts per alert.');

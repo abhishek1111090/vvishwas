@@ -24,6 +24,14 @@ describe('emergency message', () => {
     expect(msg).toMatch(/Priya, via VISHWAS/);
   });
 
+  it('includes the emergency link (location + recordings) when the SOS is backed up', () => {
+    const url = 'https://adabhishek1.in/api/share/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+    const msg = buildAlertMessage({ user: { fullName: 'Priya' }, location: FIX, triggerSource: 'button', startedAt: session.startedAt, shareUrl: url });
+    expect(msg).toContain(`Live location and my video/audio recordings: ${url}`);
+    expect(msg.startsWith('🚨 EMERGENCY ALERT!')).toBe(true);
+    expect(buildAlertMessage({ user: null, location: FIX, triggerSource: 'button', startedAt: session.startedAt })).not.toMatch(/\/share\//);
+  });
+
   it('is still sent without a location', () => {
     const msg = buildAlertMessage({ user: null, location: null, triggerSource: 'button', startedAt: session.startedAt });
     expect(msg).toMatch(/^🚨 EMERGENCY ALERT!/);
@@ -87,10 +95,10 @@ describe('server channel', () => {
 });
 
 describe('SOS → automatic messages (controller)', () => {
-  function setup(alerts, platform = 'android') {
+  function setup(alerts, platform = 'android', cloud = undefined) {
     const manager = createEmergencyManager({ storage: memoryStorage() });
     const deps = {
-      manager, alerts, platform,
+      manager, alerts, platform, ...(cloud ? { cloud } : {}),
       recording: fakeRecording(), location: fakeLocation({ fix: FIX }), notifications: fakeNotifications(),
       permissions: fakePermissions(), haptics: noHaptics, deliveryPollMs: 20,
     };
@@ -126,6 +134,23 @@ describe('SOS → automatic messages (controller)', () => {
     t.controller.startEmergency('button'); // a genuinely new SOS
     await waitFor(() => expect(alerts.sendAutomatic).toHaveBeenCalledTimes(2));
     expect(alerts.sendAutomatic.mock.calls[1][0].sessionId).not.toBe(alerts.sendAutomatic.mock.calls[0][0].sessionId);
+    await t.controller.endEmergency('resolve');
+  });
+
+  it('the automatic SMS and the Messages fallback both carry this SOS’s emergency link', async () => {
+    const shareUrl = 'https://adabhishek1.in/api/share/tok_0123456789abcdefghijklmnopqrstuvwxyzAB';
+    const cloud = { sosStarted: jest.fn(() => ({ shareUrl })), location: jest.fn(), sosEnded: jest.fn() };
+    const alerts = fakeAlerts();
+    alerts.sendAutomatic.mockImplementation(serverResult(() => 'failed'));
+    const t = setup(alerts, 'android', cloud);
+    t.controller.startEmergency('button');
+    await waitFor(() => expect(alerts.sendAutomatic).toHaveBeenCalledTimes(1));
+    expect(cloud.sosStarted.mock.calls[0][0].id).toBe(alerts.sendAutomatic.mock.calls[0][0].sessionId);
+    expect(alerts.sendAutomatic.mock.calls[0][0].message).toContain(shareUrl);
+    expect(t.manager.getSnapshot().activeSession.shareUrl).toBe(shareUrl);
+    await waitFor(() => expect(t.manager.getSnapshot().activeSession.alerts?.method).toBe('server'));
+    await t.controller.openSmsComposer();
+    expect(alerts.sendViaComposer.mock.calls[0][0].message).toContain(shareUrl);
     await t.controller.endEmergency('resolve');
   });
 

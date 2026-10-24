@@ -1,4 +1,4 @@
-import { createCloudSync, uploadsFor } from '../services/cloudSync';
+import { createCloudSync, uploadsFor, newShareToken } from '../services/cloudSync';
 import { createAuthService } from '../services/authService';
 import * as apiClient from '../services/apiClient';
 import { initStorage, __resetStorageCache } from '../utils/storage';
@@ -40,6 +40,23 @@ describe('cloudSync', () => {
       ['video', 1, 'file:///d/v1.mov'], ['video', 1001, 'file:///d/f1.mov'],
       ['photo', 1, 'file:///d/p1.jpg'],
     ]);
+  });
+
+  it('gives each SOS its own unguessable emergency link and sends only the token to the server', async () => {
+    const t = setup();
+    const a = t.sync.sosStarted(session, []);
+    const b = t.sync.sosStarted({ ...session, id: 'sess-2' }, []);
+    await flush(); await flush();
+    const token = (r) => r.shareUrl.split('/share/')[1];
+    expect(token(a)).toMatch(/^[A-Za-z0-9_-]{43}$/); // 32 random bytes, base64url
+    expect(token(a)).not.toBe(token(b));
+    expect(t.calls[0][2].shareToken).toBe(token(a));
+    expect(t.calls[1][2].shareToken).toBe(token(b));
+    expect(newShareToken(() => new Uint8Array(32).fill(255))).toBe('_'.repeat(42) + '8');
+  });
+
+  it('no link for phone-only accounts (nothing would ever reach the server)', () => {
+    expect(setup({ signedIn: false }).sync.sosStarted(session, [])).toBeNull();
   });
 
   it('sends SOS → throttled locations → end → files, in order, and marks files backed up', async () => {

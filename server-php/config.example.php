@@ -19,6 +19,7 @@ return [
     'storage_dir' => '/var/www/vhosts/adabhishek1.in/vishwas-private/recordings',
     'max_upload_mb' => 200,      // also raise PHP post_max_size in Plesk (see DEPLOY.md)
     'session_days' => 30,
+    'share_days' => 7,           // emergency links in SOS texts stop working this long after the SOS ends
 
     // Public HTTPS address of this API (reset links, Twilio callbacks, WhatsApp clip links).
     'public_url' => 'https://adabhishek1.in/api',

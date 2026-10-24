@@ -10,6 +10,7 @@ require __DIR__ . '/core.php';
 require __DIR__ . '/account.php';
 require __DIR__ . '/data.php';
 require __DIR__ . '/alerts.php';
+require __DIR__ . '/share.php';
 
 function vishwas_run(): void
 {
@@ -48,7 +49,8 @@ function vishwas_run(): void
         $ip = client_ip($cfg);
         $result = route_account($app, $method, $path, $ip)
             ?? route_data($app, $method, $path)
-            ?? route_alerts($app, $method, $path, $ip);
+            ?? route_alerts($app, $method, $path, $ip)
+            ?? route_share($app, $method, $path, $ip);
         if ($result === null) throw new HttpError(404, 'NOT_FOUND', 'Not found.');
         [$status, $body] = $result;
         if ($status === 'stream') return;
