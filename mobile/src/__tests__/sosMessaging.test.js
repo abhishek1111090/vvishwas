@@ -27,8 +27,9 @@ describe('emergency message', () => {
   it('includes the emergency link (location + recordings) when the SOS is backed up', () => {
     const url = 'https://adabhishek1.in/api/share/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
     const msg = buildAlertMessage({ user: { fullName: 'Priya' }, location: FIX, triggerSource: 'button', startedAt: session.startedAt, shareUrl: url });
-    expect(msg).toContain(`Live location and my video/audio recordings: ${url}`);
-    expect(msg.startsWith('🚨 EMERGENCY ALERT!')).toBe(true);
+    expect(msg.startsWith(`${url}\n🚨 EMERGENCY ALERT! I need help immediately.`)).toBe(true); // link first
+    expect(msg).toContain('My current location: https://www.google.com/maps/search/?api=1&query=26.9,75.8');
+    expect(msg).toContain('Open the link above for my live location, video and audio recordings.');
     expect(buildAlertMessage({ user: null, location: FIX, triggerSource: 'button', startedAt: session.startedAt })).not.toMatch(/\/share\//);
   });
 
@@ -77,6 +78,13 @@ describe('server channel', () => {
     expect(byId.c3).toMatchObject({ status: 'failed', error: 'Carrier rejected' });
     expect(byId.c4.status).toBe('duplicate');
     expect(byId.c5.status).toBe('invalidNumber');
+  });
+
+  it('without Twilio on the server it goes straight to Messages (no "failed" noise)', async () => {
+    const post = jest.fn(async () => ({ channels: { sms: false, whatsapp: false }, recipients: [{ contactId: 'c1', status: 'failed' }] }));
+    const res = await createAlertService({ post, apiConfigured: () => true }).sendAutomatic(payload());
+    expect(res).toMatchObject({ method: 'manual', status: AlertStatus.manualRequired });
+    expect(res.recipients.filter((r) => r.status === AlertStatus.manualRequired).map((r) => r.contactId)).toEqual(['c1', 'c2', 'c3']);
   });
 
   it('a server/network failure never loses the alert: it falls back to Messages', async () => {
@@ -152,6 +160,33 @@ describe('SOS → automatic messages (controller)', () => {
     await t.controller.openSmsComposer();
     expect(alerts.sendViaComposer.mock.calls[0][0].message).toContain(shareUrl);
     await t.controller.endEmergency('resolve');
+  });
+
+  it('during the SOS the recording so far is saved and uploaded about every minute, then at the end', async () => {
+    const cloud = { sosStarted: jest.fn(() => ({ shareUrl: 'https://x.test/api/share/t' })), location: jest.fn(), sosEnded: jest.fn(), filesSaved: jest.fn() };
+    const manager = createEmergencyManager({ storage: memoryStorage() });
+    const recording = fakeRecording();
+    let parts = 0;
+    recording.rotate = jest.fn(async () => {
+      parts += 1;
+      recording.set({ audio: { status: 'recording', parts: Array.from({ length: parts }, (_, i) => ({ uri: `file:///d/a${i + 1}.m4a` })) } });
+      return {};
+    });
+    const controller = createEmergencyController({
+      manager, recording, cloud, alerts: fakeAlerts(), platform: 'android', location: fakeLocation({ fix: FIX }),
+      notifications: fakeNotifications(), permissions: fakePermissions(), haptics: noHaptics, liveBackupMs: 30,
+    });
+    controller.setContext({ contacts: CONTACTS, user: { id: 'u1', fullName: 'Priya' } });
+    const { session } = controller.startEmergency('button');
+    await waitFor(() => expect(cloud.filesSaved.mock.calls.length).toBeGreaterThanOrEqual(2));
+    const [id, recs] = cloud.filesSaved.mock.calls.at(-1);
+    expect(id).toBe(session.id);
+    expect(recs.audio.parts.map((p) => p.uri)).toContain('file:///d/a1.m4a');
+    await controller.endEmergency('resolve');
+    const rotations = recording.rotate.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(recording.rotate.mock.calls.length).toBe(rotations); // stopped with the SOS
+    expect(cloud.sosEnded).toHaveBeenCalledTimes(1);
   });
 
   it('polls delivery reports and shows delivered / failed per contact', async () => {

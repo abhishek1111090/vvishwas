@@ -1,19 +1,26 @@
 import * as Crypto from 'expo-crypto';
-import { apiPost, apiPatch, apiUploadFile, getApiBaseUrl, hasAuthToken, isApiConfigured } from './apiClient';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { apiGet, apiPost, apiPatch, apiUploadFile, getApiBaseUrl, hasAuthToken, isApiConfigured } from './apiClient';
 import { contentTypeFor } from './evidenceService';
 import { readJSON, writeJSON } from '../utils/storage';
 import { STORAGE_KEYS } from '../utils/constants';
 
 /**
- * cloudSync.js — back up SOS events, location and recordings to the
- * VISHWAS server (signed-in server accounts only).
+ * cloudSync.js — back up everything the app keeps on the phone to the
+ * VISHWAS server (signed-in server accounts only): SOS events, live
+ * location, recordings (audio, back/front video, photos), past SOS history,
+ * and app data (emergency contacts, Voice SOS settings).
  *
- * Everything goes through a persisted queue, sent in order:
- *   sos (create) → locations → end (status + alert outcome) → file uploads
- * The server is idempotent (SOS by clientId, files by event/kind/part), so a
- * retry after a lost reply never creates duplicates. Network / server
- * errors keep the item and retry with backoff; the queue survives app
- * restarts. Nothing here ever blocks or delays the SOS itself.
+ * Everything goes through a persisted queue, worked by two lanes so a big
+ * video never holds up live location:
+ *   data lane: sos (create) → locations → end (status + alert outcome) → app-data backup
+ *   file lane: recording uploads, each only after its SOS reached the server
+ * Recordings are uploaded while the SOS is still running (each saved part,
+ * see emergencyController) and again at the end for anything left; a file
+ * is never sent twice. The server is idempotent (SOS by clientId, files by
+ * event/kind/part), so a retry after a lost reply never creates duplicates.
+ * Network / server errors keep the item and retry with backoff; the queue
+ * survives app restarts. Nothing here ever blocks or delays the SOS itself.
  *
  * Upload status per local file ('pending' | 'uploaded' | 'failed') is kept
  * for the History screen, so it only claims "backed up" after the server
@@ -22,7 +29,7 @@ import { STORAGE_KEYS } from '../utils/constants';
 
 const LOCATION_EVERY_MS = 30_000;
 const LOCATION_EVERY_M = 50;
-const MAX_QUEUE = 500;
+const MAX_QUEUE = 2000;
 const BACKOFF_MS = [5_000, 30_000, 120_000, 600_000];
 
 const metres = (a, b) => {
@@ -31,6 +38,9 @@ const metres = (a, b) => {
   const h = Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 };
+
+const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+const digest = (value) => toHex(sha256(new TextEncoder().encode(JSON.stringify(value))));
 
 /** 256-bit random token, base64url — the secret part of an emergency link. */
 export function newShareToken(randomBytes = Crypto.getRandomBytes) {
@@ -60,9 +70,26 @@ export function uploadsFor(clientId, recordings) {
   return items;
 }
 
+/**
+ * The recorder's live snapshot (parts saved so far during an SOS) in the
+ * same shape the SOS keeps when it ends, so part numbers always match.
+ */
+export function recordingsSoFar(snap) {
+  if (!snap) return null;
+  return {
+    audio: { parts: snap.audio?.parts ?? [] },
+    video: { clips: snap.video?.clips ?? [], front: { clips: snap.video?.frontClips ?? [] } },
+    photos: snap.photos ?? [],
+  };
+}
+
+const contactsOf = (session) =>
+  (session.alerts?.recipients ?? []).map((r) => ({ id: r.contactId, name: r.name, phoneNumber: r.phoneNumber }));
+
 export function createCloudSync({
   post = apiPost,
   patch = apiPatch,
+  get = apiGet,
   upload = apiUploadFile,
   isSignedIn = () => isApiConfigured() && hasAuthToken(),
   read = (key, fallback) => readJSON(key, fallback),
@@ -75,24 +102,37 @@ export function createCloudSync({
 } = {}) {
   let queue = null;
   let status = null;
-  let running = false;
+  let synced = null; // SOS ids already queued for the server (live or from history)
+  const running = { data: false, file: false };
+  const attempt = { data: 0, file: 0 };
   let retryTimer = null;
-  let attempt = 0;
   const lastLoc = new Map(); // clientId → { at, loc }
   const listeners = new Set();
 
   const load = () => {
     if (queue === null) queue = read(STORAGE_KEYS.cloudQueue, []) ?? [];
     if (status === null) status = read(STORAGE_KEYS.cloudUploads, {}) ?? {};
+    if (synced === null) synced = new Set(read(STORAGE_KEYS.cloudSynced, []) ?? []);
   };
   const persist = () => {
     write(STORAGE_KEYS.cloudQueue, queue.slice(-MAX_QUEUE));
     write(STORAGE_KEYS.cloudUploads, status);
+    write(STORAGE_KEYS.cloudSynced, [...synced]);
   };
   const notify = () => listeners.forEach((l) => l());
   const setStatus = (uri, value) => {
     status = { ...status, [uri]: value };
     notify();
+  };
+
+  /** Upload items for files that were never queued (or already sent) before. */
+  const newFiles = (items) => {
+    const seen = new Set(queue.filter((i) => i.type === 'upload').map((i) => i.uri));
+    return items.filter((i) => {
+      if (status[i.uri] !== undefined || seen.has(i.uri)) return false;
+      seen.add(i.uri);
+      return true;
+    });
   };
 
   function enqueue(items) {
@@ -107,11 +147,18 @@ export function createCloudSync({
   async function send(item) {
     switch (item.type) {
       case 'sos':
-        return post('/sos', { clientId: item.clientId, triggerSource: item.triggerSource, startedAt: item.startedAt, contacts: item.contacts, shareToken: item.shareToken });
+        return post('/sos', {
+          clientId: item.clientId, triggerSource: item.triggerSource, startedAt: item.startedAt, contacts: item.contacts,
+          shareToken: item.shareToken, ...(item.location ? { location: item.location } : {}),
+        });
       case 'loc':
         return post('/location', { sosClientId: item.clientId, latitude: item.latitude, longitude: item.longitude, accuracy: item.accuracy, recordedAt: item.recordedAt });
       case 'end':
         return patch(`/sos/${encodeURIComponent(item.clientId)}`, { status: item.status, endedAt: item.endedAt, alertSummary: item.alertSummary });
+      case 'backup':
+        await post('/backup', item.doc);
+        write(STORAGE_KEYS.cloudBackupHash, item.hash);
+        return null;
       case 'upload':
         return upload(
           `/recordings?sosClientId=${encodeURIComponent(item.clientId)}&kind=${item.kind}&part=${item.part}`,
@@ -123,38 +170,54 @@ export function createCloudSync({
     }
   }
 
-  async function process() {
-    load();
-    if (running || !isSignedIn() || queue.length === 0) return;
-    running = true;
-    clearTimer(retryTimer);
-    retryTimer = null;
+  // A file waits until its SOS has reached the server (or the server says "unknown SOS").
+  const nextFor = (lane) =>
+    queue.find((i) => (lane === 'file'
+      ? i.type === 'upload' && !queue.some((q) => q.type === 'sos' && q.clientId === i.clientId)
+      : i.type !== 'upload'));
+
+  async function runLane(lane) {
+    if (running[lane]) return;
+    running[lane] = true;
     try {
-      while (queue.length > 0) {
-        const item = queue[0];
+      for (;;) {
+        if (!isSignedIn()) break;
+        const item = nextFor(lane);
+        if (!item) break;
         try {
           await send(item);
           if (item.type === 'upload') setStatus(item.uri, 'uploaded');
-          attempt = 0;
+          attempt[lane] = 0;
         } catch (err) {
-          const retryable = !err?.status || err.status >= 500 || err.status === 429 || err.status === 408;
           if (err?.status === 401) break; // signed out / expired: keep everything until the next sign-in
+          const retryable = !err?.status || err.status >= 500 || err.status === 429 || err.status === 408;
           if (retryable) {
-            const delay = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
-            attempt += 1;
-            retryTimer = setTimer(() => { retryTimer = null; process(); }, delay);
+            const delay = BACKOFF_MS[Math.min(attempt[lane], BACKOFF_MS.length - 1)];
+            attempt[lane] += 1;
+            if (!retryTimer) retryTimer = setTimer(() => { retryTimer = null; process(); }, delay);
             break;
           }
           // The server refused this item for good (e.g. file type, unknown event): don't retry forever.
           if (item.type === 'upload') setStatus(item.uri, 'failed');
         }
-        queue.shift();
+        queue.splice(queue.indexOf(item), 1);
         persist();
+        if (item.type === 'sos') runLane('file'); // its files can go now
       }
     } finally {
-      running = false;
+      running[lane] = false;
       persist();
     }
+  }
+
+  async function process() {
+    load();
+    if (!isSignedIn() || queue.length === 0) return;
+    if (retryTimer) {
+      clearTimer(retryTimer);
+      retryTimer = null;
+    }
+    await Promise.all([runLane('data'), runLane('file')]);
   }
 
   return {
@@ -175,6 +238,7 @@ export function createCloudSync({
       load();
       return queue.length;
     },
+    isBackingUp: () => isSignedIn(),
 
     /**
      * Queue the SOS for the server. For signed-in server accounts it also
@@ -185,12 +249,14 @@ export function createCloudSync({
      */
     sosStarted(session, contacts = []) {
       if (!isSignedIn()) return null;
+      load();
       let shareToken = null;
       try {
         shareToken = makeShareToken();
       } catch {
         shareToken = null; // no secure randomness: back up without a link rather than a guessable one
       }
+      synced.add(session.id);
       enqueue([{
         type: 'sos',
         clientId: session.id,
@@ -211,9 +277,66 @@ export function createCloudSync({
       enqueue([{ type: 'loc', clientId, latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy, recordedAt: loc.timestamp }]);
     },
 
+    /** Upload recordings saved so far during an active SOS (each file once). */
+    filesSaved(clientId, recordings) {
+      if (!isSignedIn()) return;
+      load();
+      enqueue(newFiles(uploadsFor(clientId, recordings)));
+    },
+
     sosEnded({ clientId, status: endStatus, endedAt, alertSummary, recordings }) {
       lastLoc.delete(clientId);
-      enqueue([{ type: 'end', clientId, status: endStatus, endedAt, alertSummary }, ...uploadsFor(clientId, recordings)]);
+      if (!isSignedIn()) return;
+      load();
+      enqueue([{ type: 'end', clientId, status: endStatus, endedAt, alertSummary }, ...newFiles(uploadsFor(clientId, recordings))]);
+    },
+
+    /**
+     * Past SOS events kept only on this phone (before signing in to the
+     * server, or from a phone-only account): upload each one once — the
+     * event, its last location, its alert outcome and every recording.
+     */
+    backfillHistory(history = []) {
+      if (!isSignedIn()) return 0;
+      load();
+      const items = [];
+      for (const s of history) {
+        if (!s?.id || !s.startedAt || synced.has(s.id) || s.status === 'active' || s.status === 'ending') continue;
+        synced.add(s.id);
+        const loc = s.location;
+        items.push({
+          type: 'sos', clientId: s.id, triggerSource: s.triggerSource, startedAt: s.startedAt, contacts: contactsOf(s),
+          ...(loc?.latitude != null ? { location: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy ?? null, timestamp: loc.timestamp } } : {}),
+        });
+        items.push({
+          type: 'end', clientId: s.id, status: s.status === 'cancelled' ? 'cancelled' : 'resolved', endedAt: s.endedAt ?? s.startedAt,
+          alertSummary: (s.alerts?.recipients ?? []).map((r) => ({ contactId: r.contactId, status: r.status, whatsapp: r.whatsapp?.status ?? null })),
+        });
+        items.push(...newFiles(uploadsFor(s.id, s.recordings)));
+      }
+      enqueue(items);
+      return items.filter((i) => i.type === 'sos').length;
+    },
+
+    /** Back up app data (contacts, settings) when it changed since the last backup. */
+    backupAppData(doc) {
+      if (!isSignedIn() || !doc) return;
+      load();
+      const hash = digest(doc);
+      const pending = queue.find((i) => i.type === 'backup');
+      if (pending ? pending.hash === hash : read(STORAGE_KEYS.cloudBackupHash, null) === hash) return;
+      queue = queue.filter((i) => i.type !== 'backup'); // only the newest copy matters
+      enqueue([{ type: 'backup', doc, hash }]);
+    },
+
+    /** The app data saved on the server, or null (none / offline / not signed in). */
+    async fetchAppData() {
+      if (!isSignedIn()) return null;
+      try {
+        return (await get('/backup', { timeoutMs: 8000 }))?.backup ?? null;
+      } catch {
+        return null;
+      }
     },
 
     /** Retry anything left from before (app start, back online, signed in again). */

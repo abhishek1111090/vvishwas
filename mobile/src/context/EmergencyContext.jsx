@@ -1,5 +1,5 @@
 import {
-  createContext, useContext, useSyncExternalStore, useMemo, useCallback, useEffect, useRef,
+  createContext, useContext, useSyncExternalStore, useMemo, useCallback, useEffect, useRef, useState,
 } from 'react';
 import { AppState } from 'react-native';
 import { useAudioRecorder, RecordingPresets } from 'expo-audio';
@@ -9,6 +9,7 @@ import { recordingService } from '../services/recordingService';
 import { locationService } from '../services/locationService';
 import { voiceActivationService } from '../services/voiceActivationService';
 import { cloudSync } from '../services/cloudSync';
+import { contactsService } from '../services/contactsService';
 import { useContacts } from './ContactsContext';
 import { useAuth } from './AuthContext';
 
@@ -24,7 +25,7 @@ import { useAuth } from './AuthContext';
 const EmergencyContext = createContext(null);
 
 export function EmergencyProvider({ children }) {
-  const { contacts } = useContacts();
+  const { contacts, restoreContacts } = useContacts();
   const { currentUser } = useAuth();
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -43,10 +44,38 @@ export function EmergencyProvider({ children }) {
     voiceActivationService.init((source) => emergencyController.startEmergency(source));
   }, []);
 
-  // Server backup: send anything left over (app was closed or offline) once signed in.
+  // Server backup: send anything left over (app was closed or offline) once
+  // signed in, plus past SOS events (and their recordings) kept only on this phone.
+  // On a new phone, contacts and Voice SOS settings come back from the server.
+  const serverUserId = currentUser?.authProvider === 'server' ? currentUser.id : null;
+  const restoredFor = useRef(null);
+  const [appDataReady, setAppDataReady] = useState(false);
   useEffect(() => {
-    if (currentUser) cloudSync.process();
-  }, [currentUser]);
+    if (!currentUser) return;
+    cloudSync.process();
+    if (!serverUserId) return;
+    cloudSync.backfillHistory(emergencyManager.getSnapshot().history);
+    if (restoredFor.current === serverUserId) return;
+    restoredFor.current = serverUserId;
+    setAppDataReady(false);
+    let alive = true;
+    (async () => {
+      const saved = await cloudSync.fetchAppData();
+      if (!alive) return;
+      if (saved?.contacts?.length && contactsService.getAll().length === 0) await restoreContacts(saved.contacts);
+      const voiceSaved = saved?.settings?.voiceActivation;
+      const voiceNow = voiceActivationService.getSnapshot();
+      if (voiceSaved?.phrase && !voiceNow.phrase) voiceActivationService.save(voiceSaved);
+      if (alive) setAppDataReady(true);
+    })();
+    return () => { alive = false; };
+  }, [currentUser, serverUserId, restoreContacts]);
+
+  // Keep the server copy of contacts + Voice SOS settings current (only sent when changed).
+  useEffect(() => {
+    if (!serverUserId || !appDataReady) return;
+    cloudSync.backupAppData({ contacts, settings: { voiceActivation: { enabled: !!voice.enabled, phrase: voice.phrase ?? '' } } });
+  }, [serverUserId, appDataReady, contacts, voice.enabled, voice.phrase]);
 
   // The SOS audio recording needs the microphone, so stop listening during an
   // emergency; resume a moment after it ends (the recorder releases the mic).

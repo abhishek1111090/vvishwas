@@ -108,6 +108,20 @@ export const contactsService = {
     await saveAll(loadAll().filter((c) => c.id !== id));
   },
 
+  /** Put back contacts from the server backup (new phone). Invalid entries are skipped. */
+  async restore(list) {
+    const kept = [];
+    for (const c of Array.isArray(list) ? list : []) {
+      try {
+        kept.push({ ...c, ...validateContact(c, kept, null), id: c.id || generateUUID(), createdAt: c.createdAt ?? new Date().toISOString() });
+      } catch {
+        // skip a contact that no longer validates
+      }
+    }
+    await saveAll(kept);
+    return kept.length;
+  },
+
   async toggleFavorite(id) {
     const all = loadAll();
     const updated = all.map((c) => (c.id === id ? { ...c, isFavorite: !c.isFavorite } : c));

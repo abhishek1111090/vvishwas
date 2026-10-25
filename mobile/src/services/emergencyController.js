@@ -9,7 +9,7 @@ import { haptics as defaultHaptics } from './hapticService';
 import { geoService as defaultGeo } from './geoService';
 import { floorService as defaultFloor, floorLabel } from './floorService';
 import { createEvidenceService } from './evidenceService';
-import { cloudSync as defaultCloud } from './cloudSync';
+import { cloudSync as defaultCloud, recordingsSoFar } from './cloudSync';
 
 /**
  * emergencyController.js — orchestrates one SOS session
@@ -37,6 +37,7 @@ const RECORDING_LABEL = { audio: '🎙 Audio', video: '📹 Video' };
 const ALERT_WAIT_FOR_FIX_MS = 15_000;
 const DELIVERY_POLL_MS = 5_000;
 const DELIVERY_POLL_FOR_MS = 3 * 60_000;
+const LIVE_BACKUP_MS = 60_000; // save + upload the recording so far, so the emergency link shows it during the SOS
 
 function formatBytes(bytes) {
   if (!bytes) return '0 KB';
@@ -59,6 +60,7 @@ export function createEmergencyController({
   deliveryPollMs = DELIVERY_POLL_MS,
   evidenceFactory = createEvidenceService,
   cloud = defaultCloud,
+  liveBackupMs = LIVE_BACKUP_MS,
 } = {}) {
   let context = { contacts: [], user: null };
   let watchers = [];
@@ -71,6 +73,43 @@ export function createEmergencyController({
   const log = (message, level) => manager.appendLog(message, level);
   // Audio/video clips → contacts on WhatsApp (only when the server has WhatsApp).
   const evidence = evidenceFactory({ recording, log });
+
+  // ─── Live server backup of recordings (signed-in server accounts) ────────
+  // Every liveBackupMs the recording so far is saved as a part (recording
+  // continues) and queued for upload, so the emergency link shows video and
+  // audio while the SOS is still running. WhatsApp evidence already saves a
+  // part every 30 s; then only the upload is queued.
+  let backupTimer = null;
+  let backupTick = null;
+  const canRotate = () => typeof recording.rotate === 'function' && typeof recording.getSnapshot === 'function';
+
+  function backupFilesSoFar(id) {
+    if (canRotate()) cloud.filesSaved?.(id, recordingsSoFar(recording.getSnapshot()));
+  }
+
+  function startLiveBackup(id) {
+    if (!canRotate() || !cloud.filesSaved) return;
+    clearInterval(backupTimer);
+    backupTimer = setInterval(() => {
+      if (activeId() !== id || backupTick) return;
+      backupTick = (async () => {
+        try {
+          if (!evidence.isRunning()) await recording.rotate(id);
+          if (activeId() === id) backupFilesSoFar(id);
+        } catch {
+          // A failed part save is logged by the recorder; the final save still runs.
+        } finally {
+          backupTick = null;
+        }
+      })();
+    }, liveBackupMs);
+  }
+
+  async function stopLiveBackup() {
+    clearInterval(backupTimer);
+    backupTimer = null;
+    if (backupTick) await backupTick;
+  }
 
   // ─── Address (OpenStreetMap) + floor (barometer) ─────────────────────────
   let addressFor = null;      // location the current address was looked up for
@@ -331,6 +370,7 @@ export function createEmergencyController({
       // Server backup; never delays the SOS. Its emergency link goes into the alert text.
       const backup = cloud.sosStarted(session, context.contacts ?? []);
       if (backup?.shareUrl) manager.update({ shareUrl: backup.shareUrl });
+      if (backup) startLiveBackup(session.id);
       attachWatchers(session.id);
 
       log('🎙 Requesting microphone…');
@@ -396,7 +436,10 @@ export function createEmergencyController({
       const id = activeId();
       if (!id) return { status: 'error', error: 'No active emergency.' };
       const res = await recording.takePhoto(id);
-      if (res.status === 'saved') log(`📸 Photo saved privately (${formatBytes(res.bytes)}, ${res.facing} camera)`, 'success');
+      if (res.status === 'saved') {
+        log(`📸 Photo saved privately (${formatBytes(res.bytes)}, ${res.facing} camera)`, 'success');
+        backupFilesSoFar(id);
+      }
       else if (res.status === 'error') log(`📸 Photo not taken: ${res.error}`, 'error');
       return res;
     },
@@ -473,6 +516,7 @@ export function createEmergencyController({
           log(kind === 'resolve' ? 'Ending emergency — saving recordings…' : 'Cancelling — stopping recording and tracking…');
           await location.stop();
 
+          await stopLiveBackup();
           await evidence.stop();
           const results = await recording.stopAll();
           const recordings = {};

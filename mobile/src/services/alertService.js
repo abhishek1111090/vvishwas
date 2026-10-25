@@ -116,12 +116,13 @@ export function buildAlertMessage({ user, location, triggerSource, startedAt, ad
   const floorText = describeFloor(floor);
   if (floorText) parts.push(`Floor: ${floorText}.`);
   if (location) parts.push(`(GPS ±${location.accuracy ?? '?'} m at ${new Date(location.timestamp).toLocaleTimeString()})`);
-  if (shareUrl) parts.push(`Live location and my video/audio recordings: ${shareUrl}`);
+  if (shareUrl) parts.push('Open the link above for my live location, video and audio recordings.');
   // Server texts arrive from the SMS provider's number, so say who this is.
   const who = user?.fullName?.trim();
   const when = new Date(startedAt).toLocaleString();
   parts.push(`— ${who ? `${who}, ` : ''}via VISHWAS (${TRIGGER_SOURCE[triggerSource] ?? triggerSource}, ${when}).`);
-  return parts.join(' ');
+  // The emergency link comes first, on its own line, so it's the first thing the contact sees and taps.
+  return shareUrl ? `${shareUrl}\n${parts.join(' ')}` : parts.join(' ');
 }
 
 export function buildAlertPayload({ session, location, contacts, user }) {
@@ -199,6 +200,10 @@ export function createAlertService({ sms = SMS, post = apiPost, get = apiGet, ap
       if (apiConfigured()) {
         try {
           const res = await post('/alerts/emergency', payload);
+          // No SMS provider (Twilio) on the server: the phone sends it from Messages instead.
+          if (res?.channels && !res.channels.sms && !res.channels.whatsapp) {
+            return { method: 'manual', status: AlertStatus.manualRequired, recipients: recipientsFrom(payload, AlertStatus.manualRequired), message: payload.message, serverError: 'Automatic SMS is not set up on the server' };
+          }
           if (!Array.isArray(res?.recipients)) {
             // Older server: it accepted the job but reports nothing per contact.
             return { method: 'server', status: AlertStatus.accepted, recipients: recipientsFrom(payload, AlertStatus.accepted), message: payload.message };

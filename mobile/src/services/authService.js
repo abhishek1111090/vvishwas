@@ -122,6 +122,24 @@ export function createAuthService({ hashIterations = PBKDF2_ITERATIONS, serverMo
     }
   }
 
+  /**
+   * Create the server account for a phone-only account the person just
+   * proved they own (password checked on the phone). The password goes over
+   * HTTPS once and the server keeps only an Argon2id hash. null if it can't
+   * be moved now (offline, or that email is already a server account with a
+   * different password) — the phone-only sign-in still works.
+   */
+  async function moveToServer(local, password) {
+    try {
+      const res = await apiPost('/auth/register', { fullName: local.fullName, email: normalizeEmail(local.email), password }, { timeoutMs: 8000 });
+      const user = await saveServerSession(res);
+      await secureRemove(STORAGE_KEYS.sessionUserId);
+      return user;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     get isLocalOnly() {
       return !serverMode();
@@ -188,9 +206,11 @@ export function createAuthService({ hashIterations = PBKDF2_ITERATIONS, serverMo
         try {
           res = await apiPost('/auth/login', { email: normalized, password: password ?? '' });
         } catch (err) {
-          // An account made on this phone before the server existed still signs in locally.
+          // An account made on this phone before the server existed still signs in locally,
+          // and is then moved to the server (same name, email and password) so its data backs up.
           if (err?.status === 401 && loadUsers().some((u) => normalizeEmail(u.email) === normalized)) {
-            return this.signInLocal({ email: normalized, password });
+            const local = await this.signInLocal({ email: normalized, password });
+            return (await moveToServer(local, password)) ?? local;
           }
           throw serverAuthError(err, ERRORS.invalidCredentials);
         }

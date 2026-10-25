@@ -3,6 +3,7 @@
 // a signed-in user and only ever reads or changes that user's rows.
 declare(strict_types=1);
 
+const BACKUP_MAX_BYTES = 8 * 1024 * 1024; // contacts can carry small photos
 const TRIGGERS = ['button', 'tripleTap', 'voice', 'siri', 'watch', 'safetyTimer'];
 const FILE_TYPES = [
     'audio' => ['audio/mp4' => 'm4a', 'audio/m4a' => 'm4a', 'audio/x-m4a' => 'm4a', 'audio/aac' => 'aac'],
@@ -119,6 +120,34 @@ function route_data(App $app, string $method, string $path): ?array
         $b = read_json();
         insert_location($app, event_for($app, $user, $b['sosClientId'] ?? null)['id'], $b);
         return [201, ['ok' => true]];
+    }
+
+    // ── app data backup (contacts, settings): one JSON document per user ───
+    if ($path === '/backup' && $method === 'POST') { // replaces the whole document (POST: some hosts block PUT)
+        $user = require_user($app);
+        $b = read_json(BACKUP_MAX_BYTES);
+        $doc = [];
+        if (isset($b['contacts'])) {
+            if (!is_array($b['contacts']) || count($b['contacts']) > 200) throw new HttpError(400, 'BAD_BACKUP', 'contacts must be a list (at most 200).');
+            $doc['contacts'] = array_values($b['contacts']);
+        }
+        if (isset($b['settings'])) {
+            if (!is_array($b['settings'])) throw new HttpError(400, 'BAD_BACKUP', 'settings must be an object.');
+            $doc['settings'] = $b['settings'];
+        }
+        $json = json_encode($doc, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $now = now_iso();
+        $app->tx(function () use ($app, $user, $json, $now) {
+            $app->q('DELETE FROM user_backups WHERE user_id = ?', [$user['id']]);
+            $app->q('INSERT INTO user_backups (user_id, data, updated_at) VALUES (?, ?, ?)', [$user['id'], $json, $now]);
+        });
+        return [200, ['updatedAt' => $now]];
+    }
+
+    if ($path === '/backup' && $method === 'GET') {
+        $user = require_user($app);
+        $row = $app->one('SELECT data, updated_at FROM user_backups WHERE user_id = ?', [$user['id']]);
+        return [200, ['backup' => $row ? json_decode((string) $row['data'], true) : null, 'updatedAt' => $row ? iso($row['updated_at']) : null]];
     }
 
     // ── recordings ───────────────────────────────────────────────────────

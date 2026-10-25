@@ -234,6 +234,27 @@ test('emergency link: opens only that SOS (location + playable recordings), noth
   } finally { t.close(); }
 });
 
+test('app data backup (contacts, settings): owner-only, replaced each time', async () => {
+  const t = await setup();
+  try {
+    const a = (await t.call('POST', '/auth/register', { body: ALICE })).json.token;
+    const b = (await t.call('POST', '/auth/register', { body: { fullName: 'Other', email: 'other@example.com', password: 'other-password' } })).json.token;
+    assert.deepEqual((await t.call('GET', '/backup', { token: a })).json, { backup: null, updatedAt: null });
+    const doc = { contacts: [{ id: 'c1', name: 'Maa', phoneNumber: '+919876543210', priority: 0 }], settings: { voiceActivation: { enabled: true, phrase: 'help me vishwas now' } } };
+    assert.equal((await t.call('POST', '/backup', { token: a, body: doc })).status, 200);
+    assert.deepEqual((await t.call('GET', '/backup', { token: a })).json.backup, doc);
+    assert.equal((await t.call('GET', '/backup', { token: b })).json.backup, null);
+    await t.call('POST', '/backup', { token: a, body: { contacts: [] } });
+    assert.deepEqual((await t.call('GET', '/backup', { token: a })).json.backup, { contacts: [] });
+    assert.equal((await t.call('POST', '/backup', { token: a, body: { contacts: 'nope' } })).status, 400);
+    assert.equal((await t.call('GET', '/backup')).status, 401);
+    // No Twilio here: alerts are refused at once, so the phone sends from Messages.
+    const noTwilio = await t.call('POST', '/alerts/emergency', { body: { sessionId: 'z', message: '🚨 EMERGENCY ALERT! test', contacts: [{ id: 'a', name: 'Maa', phoneNumber: '+919876543210' }] }, headers: { 'x-vishwas-key': KEY } });
+    assert.equal(noTwilio.status, 503);
+    assert.equal(noTwilio.json.code, 'MESSAGING_OFF');
+  } finally { t.close(); }
+});
+
 test('password reset: honest when mail is off; full single-use flow when on', async () => {
   const off = await setup({ mail: false });
   try {
@@ -269,6 +290,7 @@ test('alerts: WhatsApp to every valid contact once; clips sent and served; bad k
     const post = (body, key = KEY) => t.call('POST', '/alerts/emergency', { body, headers: { 'x-vishwas-key': key } });
     assert.equal((await post({ sessionId: 'x', message: MSG, contacts }, 'wrong')).status, 401);
     assert.equal((await post({ sessionId: 'y', message: 'Buy now!', contacts })).status, 400);
+    assert.equal((await post({ sessionId: 'y', message: 'https://evil.example/x Buy now!', contacts })).status, 400);
 
     const res = await post({ sessionId: 's1', message: MSG, contacts, user: { fullName: 'Anshu' } });
     assert.equal(res.status, 200, res.text);
@@ -297,6 +319,12 @@ test('alerts: WhatsApp to every valid contact once; clips sent and served; bad k
     assert.equal((await t.call('POST', '/sms/status', { raw: form, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': sig } })).status, 204);
     const status = await t.call('GET', '/alerts/s1', { headers: { 'x-vishwas-key': KEY } });
     assert.equal(status.json.recipients.filter((r) => r.status === 'delivered').length, 1);
+
+    // The alert may open with its emergency link.
+    const linkFirst = `https://example.test/api/share/${'A'.repeat(43)}\n${MSG}`;
+    const withLink = await post({ sessionId: 's0', message: linkFirst, contacts: [contacts[0]] });
+    assert.equal(withLink.status, 200, withLink.text);
+    assert.equal(twilio.sent.at(-1).Body, linkFirst);
   } finally {
     t.close();
     await twilio.close();

@@ -29,11 +29,12 @@ export function ContactsProvider({ children }) {
   const updateContact = useCallback((id, patch) => mutate(() => contactsService.update(id, patch)), [mutate]);
   const removeContact = useCallback((id) => mutate(() => contactsService.remove(id)), [mutate]);
   const toggleFavorite = useCallback((id) => mutate(() => contactsService.toggleFavorite(id)), [mutate]);
+  const restoreContacts = useCallback((list) => mutate(() => contactsService.restore(list)), [mutate]);
   const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo(
-    () => ({ contacts, error, clearError, addContact, updateContact, removeContact, toggleFavorite }),
-    [contacts, error, clearError, addContact, updateContact, removeContact, toggleFavorite]
+    () => ({ contacts, error, clearError, addContact, updateContact, removeContact, toggleFavorite, restoreContacts }),
+    [contacts, error, clearError, addContact, updateContact, removeContact, toggleFavorite, restoreContacts]
   );
 
   return <ContactsContext.Provider value={value}>{children}</ContactsContext.Provider>;

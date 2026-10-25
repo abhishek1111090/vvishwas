@@ -141,7 +141,7 @@ function render(d) {
 
   const recs = el('div', { className: 'card' }, el('h2', { textContent: 'Recordings' }));
   if (d.recordings.length === 0) {
-    recs.append(el('p', { textContent: active ? 'Video and audio are being recorded. They appear here after the SOS ends and the phone uploads them.' : 'No recordings have been uploaded yet. The phone uploads them when it has a connection.' }));
+    recs.append(el('p', { textContent: active ? 'Video and audio are being recorded. The phone uploads them about every minute; this page updates by itself.' : 'No recordings have been uploaded yet. The phone uploads them when it has a connection.' }));
   }
   for (const r of d.recordings) {
     const src = location.pathname.replace(/\/$/, '') + '/r/' + r.id;

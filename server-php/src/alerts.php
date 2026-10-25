@@ -206,10 +206,15 @@ function route_alerts(App $app, string $method, string $path, string $ip): ?arra
         if ($existing) return [200, alert_view($app, $sessionId, json_decode((string) $existing['recipients'], true) ?: []) + ['duplicate' => true]];
 
         $message = trim((string) ($b['message'] ?? ''));
-        if (!str_starts_with($message, ALERT_PREFIX) || mb_strlen($message) > 1200) throw new HttpError(400, 'BAD_MESSAGE', 'Only VISHWAS emergency alerts can be sent.');
+        // The alert may open with its emergency link (share.php) on the first line.
+        $body = preg_replace('#^https://\S+/share/[A-Za-z0-9_-]{32,128}\s+#', '', $message);
+        if (!str_starts_with($body, ALERT_PREFIX) || mb_strlen($message) > 1200) throw new HttpError(400, 'BAD_MESSAGE', 'Only VISHWAS emergency alerts can be sent.');
         $contacts = is_array($b['contacts'] ?? null) ? $b['contacts'] : [];
         if (!$contacts) throw new HttpError(400, 'NO_CONTACTS', 'No contacts to alert.');
         if (count($contacts) > 10) throw new HttpError(400, 'TOO_MANY', 'At most 10 contacts per alert.');
+        // No Twilio: say so at once (the phone sends from Messages) instead of storing an alert nobody can send.
+        $t = twilio_cfg($app);
+        if (!$t['sms'] && !$t['whatsapp']) throw new HttpError(503, 'MESSAGING_OFF', 'Automatic SMS is not set up on the server.');
         if ($app->rateLimited("alert:$ip", 5, 600)) throw new HttpError(429, 'RATE_LIMITED', 'Too many new alerts from this device. Try again shortly.');
 
         $cc = (string) ($app->cfg['default_country_code'] ?? '');
@@ -235,7 +240,6 @@ function route_alerts(App $app, string $method, string $path, string $ip): ?arra
             return [200, alert_view($app, $sessionId, json_decode((string) $row['recipients'], true) ?: []) + ['duplicate' => true]];
         }
 
-        $t = twilio_cfg($app);
         $jobs = [];
         $map = [];
         foreach ($recipients as $i => $r) {

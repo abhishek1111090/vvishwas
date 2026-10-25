@@ -16,6 +16,8 @@ export const STORAGE_KEYS = {
   emergencyHistory: 'vishwas.emergency.history.v1', // ended sessions, newest first
   cloudQueue: 'vishwas.cloud.queue.v1',             // pending server backups (SOS, locations, files)
   cloudUploads: 'vishwas.cloud.uploads.v1',         // local file uri → 'pending' | 'uploaded' | 'failed'
+  cloudSynced: 'vishwas.cloud.synced.v1',           // SOS ids already queued for the server
+  cloudBackupHash: 'vishwas.cloud.backup-hash.v1',  // hash of the last app-data backup the server confirmed
   voiceActivation: 'vishwas.voice.activation.v1',   // { enabled, phrase } for Voice SOS
 };
 
