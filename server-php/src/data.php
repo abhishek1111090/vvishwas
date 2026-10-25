@@ -169,6 +169,12 @@ function route_data(App $app, string $method, string $path): ?array
         $already = $app->one('SELECT * FROM recordings WHERE upload_key = ?', [$uploadKey]);
         if ($already) return [200, ['recording' => public_recording($already, $ev['client_id'] ?? null), 'duplicate' => true]];
 
+        // Chunked upload (?offset=&total=): big files arrive in pieces small enough for slow
+        // links and proxy time limits; an interrupted upload resumes where the server stopped.
+        if (isset($_GET['offset']) || isset($_GET['total'])) {
+            return upload_chunk($app, $dir, $user, $ev, $kind, $part, $type, $ext, $uploadKey, $max);
+        }
+
         $id = uuid4();
         $partial = "$dir/.partial/$id.upload";
         $in = fopen('php://input', 'rb');
@@ -237,6 +243,68 @@ function route_data(App $app, string $method, string $path): ?array
         }
     }
     return null;
+}
+
+/**
+ * One piece of a chunked upload. Pieces must arrive in order: a piece that
+ * doesn't start where the server's copy ends is not written, and the reply
+ * says how many bytes the server has, so the phone continues from there.
+ * 202 {received} until the last piece; then the file is stored like a
+ * one-shot upload and 201 {recording} is returned.
+ */
+function upload_chunk(App $app, string $dir, array $user, ?array $ev, string $kind, int $part, string $type, string $ext, string $uploadKey, int $max): array
+{
+    $offset = filter_var($_GET['offset'] ?? null, FILTER_VALIDATE_INT);
+    $total = filter_var($_GET['total'] ?? null, FILTER_VALIDATE_INT);
+    if ($offset === false || $total === false || $offset < 0 || $total < 1 || $offset >= $total) throw new HttpError(400, 'BAD_CHUNK', 'offset/total are invalid.');
+    if ($total > $max) throw new HttpError(413, 'TOO_LARGE', 'File too large.');
+    $partial = "$dir/.partial/" . hash('sha256', $uploadKey) . '.chunks';
+    clearstatcache(true, $partial);
+    $have = is_file($partial) ? filesize($partial) : 0;
+    if ($have > $total) { @unlink($partial); $have = 0; } // a different file with the same key: start over
+    if ($offset !== $have) return [202, ['received' => $have, 'total' => $total]];
+
+    $in = fopen('php://input', 'rb');
+    $out = fopen($partial, 'ab');
+    if (!$in || !$out || !flock($out, LOCK_EX)) throw new HttpError(503, 'NO_STORAGE', 'Could not store the file.');
+    clearstatcache(true, $partial);
+    if (filesize($partial) !== $offset) { // another request appended meanwhile
+        fclose($out);
+        return [202, ['received' => filesize($partial), 'total' => $total]];
+    }
+    $size = $offset;
+    while (!feof($in)) {
+        $chunk = fread($in, 1 << 16);
+        if ($chunk === false || $chunk === '') break;
+        if ($size + strlen($chunk) > $total) {
+            ftruncate($out, $offset);
+            fclose($out);
+            throw new HttpError(400, 'BAD_CHUNK', 'More data than the declared total.');
+        }
+        fwrite($out, $chunk);
+        $size += strlen($chunk);
+    }
+    fflush($out);
+    flock($out, LOCK_UN);
+    fclose($out);
+    if ($size < $total) return [202, ['received' => $size, 'total' => $total]];
+
+    $id = uuid4();
+    $key = $user['id'] . "/$id.$ext";
+    if (!is_dir("$dir/" . $user['id'])) mkdir("$dir/" . $user['id'], 0700, true);
+    $sha = hash_file('sha256', $partial);
+    rename($partial, "$dir/$key");
+    try {
+        $app->q('INSERT INTO recordings (id, user_id, event_id, kind, part, upload_key, content_type, size_bytes, sha256, storage_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$id, $user['id'], $ev['id'] ?? null, $kind, $part, $uploadKey, $type, $total, $sha, $key, now_iso()]);
+    } catch (PDOException $e) {
+        @unlink("$dir/$key");
+        if ($app->isConflict($e)) {
+            return [200, ['recording' => public_recording($app->one('SELECT * FROM recordings WHERE upload_key = ?', [$uploadKey]), $ev['client_id'] ?? null), 'duplicate' => true]];
+        }
+        throw $e;
+    }
+    return [201, ['recording' => public_recording($app->one('SELECT * FROM recordings WHERE id = ?', [$id]), $ev['client_id'] ?? null)]];
 }
 
 /** Stream a file with single-range support (video players seek with Range). */

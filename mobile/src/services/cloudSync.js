@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { apiGet, apiPost, apiPatch, apiUploadFile, getApiBaseUrl, hasAuthToken, isApiConfigured } from './apiClient';
+import { apiGet, apiPost, apiPatch, apiUploadFileChunked, getApiBaseUrl, hasAuthToken, isApiConfigured } from './apiClient';
 import { contentTypeFor } from './evidenceService';
 import { readJSON, writeJSON } from '../utils/storage';
 import { STORAGE_KEYS } from '../utils/constants';
@@ -90,7 +90,7 @@ export function createCloudSync({
   post = apiPost,
   patch = apiPatch,
   get = apiGet,
-  upload = apiUploadFile,
+  upload = apiUploadFileChunked,
   isSignedIn = () => isApiConfigured() && hasAuthToken(),
   read = (key, fallback) => readJSON(key, fallback),
   write = (key, value) => writeJSON(key, value),
@@ -170,11 +170,19 @@ export function createCloudSync({
     }
   }
 
-  // A file waits until its SOS has reached the server (or the server says "unknown SOS").
-  const nextFor = (lane) =>
-    queue.find((i) => (lane === 'file'
-      ? i.type === 'upload' && !queue.some((q) => q.type === 'sos' && q.clientId === i.clientId)
-      : i.type !== 'upload'));
+  // Data items go strictly in order. A file waits until its SOS has reached the
+  // server; small files (audio, photos) go before videos, and a file waiting to
+  // retry never holds up the others.
+  const FILE_ORDER = { audio: 0, photo: 1, video: 2 };
+  const nextFor = (lane) => {
+    if (lane === 'data') return queue.find((i) => i.type !== 'upload');
+    const ready = queue.filter((i) => i.type === 'upload' && !(i.retryAt > now()) && !queue.some((q) => q.type === 'sos' && q.clientId === i.clientId));
+    return ready.sort((a, b) => (FILE_ORDER[a.kind] ?? 3) - (FILE_ORDER[b.kind] ?? 3))[0];
+  };
+  const scheduleRetry = (delay) => {
+    if (retryTimer) return;
+    retryTimer = setTimer(() => { retryTimer = null; process(); }, delay);
+  };
 
   async function runLane(lane) {
     if (running[lane]) return;
@@ -186,15 +194,29 @@ export function createCloudSync({
         if (!item) break;
         try {
           await send(item);
-          if (item.type === 'upload') setStatus(item.uri, 'uploaded');
+          if (item.type === 'upload') {
+            setStatus(item.uri, 'uploaded');
+            console.log(`[cloud] uploaded ${item.kind} ${item.part}`);
+          }
           attempt[lane] = 0;
         } catch (err) {
+          // Diagnostics without secrets: item kind and the server's answer only.
+          console.warn(`[cloud] ${item.type}${item.kind ? ` ${item.kind} ${item.part}` : ''} failed: ${err?.status ?? err?.code ?? '?'} ${err?.message ?? err}`);
           if (err?.status === 401) break; // signed out / expired: keep everything until the next sign-in
           const retryable = !err?.status || err.status >= 500 || err.status === 429 || err.status === 408;
+          if (retryable && lane === 'file') {
+            // This file waits; the others keep going.
+            item.tries = (item.tries ?? 0) + 1;
+            const delay = BACKOFF_MS[Math.min(item.tries - 1, BACKOFF_MS.length - 1)];
+            item.retryAt = now() + delay;
+            persist();
+            scheduleRetry(delay);
+            continue;
+          }
           if (retryable) {
             const delay = BACKOFF_MS[Math.min(attempt[lane], BACKOFF_MS.length - 1)];
             attempt[lane] += 1;
-            if (!retryTimer) retryTimer = setTimer(() => { retryTimer = null; process(); }, delay);
+            scheduleRetry(delay);
             break;
           }
           // The server refused this item for good (e.g. file type, unknown event): don't retry forever.
@@ -210,14 +232,18 @@ export function createCloudSync({
     }
   }
 
-  async function process() {
+  async function process({ retryNow = false } = {}) {
     load();
     if (!isSignedIn() || queue.length === 0) return;
     if (retryTimer) {
       clearTimer(retryTimer);
       retryTimer = null;
     }
+    // App reopened / signed in again: files waiting to retry may go now.
+    if (retryNow) queue.forEach((i) => { if (i.retryAt) i.retryAt = 0; });
     await Promise.all([runLane('data'), runLane('file')]);
+    const waiting = queue.filter((i) => i.retryAt > now()).map((i) => i.retryAt - now());
+    if (waiting.length && !retryTimer) scheduleRetry(Math.min(...waiting));
   }
 
   return {
@@ -340,7 +366,7 @@ export function createCloudSync({
     },
 
     /** Retry anything left from before (app start, back online, signed in again). */
-    process,
+    process: () => process({ retryNow: true }),
   };
 }
 

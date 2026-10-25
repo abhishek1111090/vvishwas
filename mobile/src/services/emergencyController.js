@@ -10,6 +10,7 @@ import { geoService as defaultGeo } from './geoService';
 import { floorService as defaultFloor, floorLabel } from './floorService';
 import { createEvidenceService } from './evidenceService';
 import { cloudSync as defaultCloud, recordingsSoFar } from './cloudSync';
+import { isApiConfigured } from './apiClient';
 
 /**
  * emergencyController.js — orchestrates one SOS session
@@ -371,6 +372,9 @@ export function createEmergencyController({
       const backup = cloud.sosStarted(session, context.contacts ?? []);
       if (backup?.shareUrl) manager.update({ shareUrl: backup.shareUrl });
       if (backup) startLiveBackup(session.id);
+      else if (isApiConfigured()) {
+        log('🔗 No emergency link in the alert: this account is only on this phone. Sign out and sign in again to move it to the server.', 'warning');
+      }
       attachWatchers(session.id);
 
       log('🎙 Requesting microphone…');

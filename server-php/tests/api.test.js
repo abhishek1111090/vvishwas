@@ -234,6 +234,30 @@ test('emergency link: opens only that SOS (location + playable recordings), noth
   } finally { t.close(); }
 });
 
+test('chunked upload: in order, resumable, idempotent, same file as one-shot', async () => {
+  const t = await setup();
+  try {
+    const a = (await t.call('POST', '/auth/register', { body: ALICE })).json.token;
+    await t.call('POST', '/sos', { token: a, body: { clientId: 'sess-c', triggerSource: 'button' } });
+    const bytes = require('node:crypto').randomBytes(250_000);
+    const put = (offset, end, total = bytes.length) => t.call('POST', `/recordings?sosClientId=sess-c&kind=video&part=1&offset=${offset}&total=${total}`, { token: a, raw: bytes.subarray(offset, end), headers: { 'Content-Type': 'video/quicktime' } });
+    const first = await put(0, 100_000);
+    assert.equal(first.status, 202, first.text);
+    assert.equal(first.json.received, 100_000);
+    assert.equal((await put(0, 100_000)).json.received, 100_000);        // repeated piece: not written twice
+    assert.equal((await put(200_000, 250_000)).json.received, 100_000);  // gap: told where to continue
+    assert.equal((await put(100_000, 200_000)).json.received, 200_000);
+    const done = await put(200_000, 250_000);
+    assert.equal(done.status, 201, done.text);
+    assert.equal(done.json.recording.sizeBytes, bytes.length);
+    assert.equal(done.json.recording.sha256, require('node:crypto').createHash('sha256').update(bytes).digest('hex'));
+    assert.equal((await t.call('GET', `/recordings/${done.json.recording.id}/file`, { token: a, headers: { Range: 'bytes=0-0' } })).status, 206);
+    assert.equal((await put(0, 100_000)).json.duplicate, true);           // whole file already stored
+    assert.equal((await t.call('POST', '/recordings?sosClientId=sess-c&kind=video&part=3&offset=0&total=0', { token: a, raw: bytes.subarray(0, 10), headers: { 'Content-Type': 'video/mp4' } })).status, 400);
+    assert.equal((await t.call('POST', '/recordings?sosClientId=sess-c&kind=video&part=2&offset=0&total=99999999', { token: a, raw: bytes.subarray(0, 10), headers: { 'Content-Type': 'video/mp4' } })).status, 413);
+  } finally { t.close(); }
+});
+
 test('app data backup (contacts, settings): owner-only, replaced each time', async () => {
   const t = await setup();
   try {

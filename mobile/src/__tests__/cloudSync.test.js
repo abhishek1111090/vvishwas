@@ -72,15 +72,35 @@ describe('cloudSync', () => {
     expect(lines.filter((l) => l.startsWith('UPLOAD'))).toEqual([
       'UPLOAD /recordings?sosClientId=sess-1&kind=audio&part=1',
       'UPLOAD /recordings?sosClientId=sess-1&kind=audio&part=2',
+      'UPLOAD /recordings?sosClientId=sess-1&kind=photo&part=1',
       'UPLOAD /recordings?sosClientId=sess-1&kind=video&part=1',
       'UPLOAD /recordings?sosClientId=sess-1&kind=video&part=1001',
-      'UPLOAD /recordings?sosClientId=sess-1&kind=photo&part=1',
     ]);
     const typeOf = (uri) => t.calls.find((c) => c[2] === uri)[3];
     expect(typeOf('file:///d/f1.mov')).toBe('video/quicktime');
     expect(typeOf('file:///d/p1.jpg')).toBe('image/jpeg');
     expect(t.sync.statusOf('file:///d/a1.m4a')).toBe('uploaded');
     expect(t.sync.pendingCount()).toBe(0);
+  });
+
+  it('a video that keeps failing (Cloudflare 524) never blocks audio and photos', async () => {
+    const t = setup();
+    t.upload.mockImplementation(async (p, uri) => {
+      t.calls.push(['UPLOAD', p, uri]);
+      if (uri.endsWith('.mov')) throw Object.assign(new Error('Server error (524).'), { status: 524 });
+      return {};
+    });
+    t.sync.sosStarted(session, []);
+    t.sync.sosEnded({ clientId: 'sess-1', status: 'resolved', endedAt: 'x', alertSummary: [], recordings: {
+      video: { status: 'saved', uri: 'file:///d/v1.mov' }, audio: { status: 'saved', uri: 'file:///d/a1.m4a' }, photos: [{ uri: 'file:///d/p1.jpg' }],
+    } });
+    for (let i = 0; i < 8; i += 1) await flush();
+    const uploads = t.calls.filter((c) => c[0] === 'UPLOAD').map((c) => c[2]);
+    expect(uploads.slice(0, 2)).toEqual(['file:///d/a1.m4a', 'file:///d/p1.jpg']); // small files first
+    expect(t.sync.statusOf('file:///d/a1.m4a')).toBe('uploaded');
+    expect(t.sync.statusOf('file:///d/p1.jpg')).toBe('uploaded');
+    expect(t.sync.statusOf('file:///d/v1.mov')).toBe('pending'); // kept, retried later
+    expect(t.sync.pendingCount()).toBe(1);
   });
 
   it('a slow video upload never holds up live location', async () => {
@@ -107,7 +127,7 @@ describe('cloudSync', () => {
     t.sync.sosEnded({ clientId: 'sess-1', status: 'resolved', endedAt: 'x', alertSummary: [], recordings });
     for (let i = 0; i < 6; i += 1) await flush();
     const uploads = t.calls.filter((c) => c[0] === 'UPLOAD').map((c) => c[2]);
-    expect(uploads).toEqual(['file:///d/a1.m4a', 'file:///d/v1.mov', 'file:///d/a2.m4a', 'file:///d/f1.mov', 'file:///d/p1.jpg']);
+    expect(uploads).toEqual(['file:///d/a1.m4a', 'file:///d/v1.mov', 'file:///d/a2.m4a', 'file:///d/p1.jpg', 'file:///d/f1.mov']); // audio, photos, then video
   });
 
   it('uploads past SOS events from this phone once (event, last location, outcome, files)', async () => {

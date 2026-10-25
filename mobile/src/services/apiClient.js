@@ -9,7 +9,9 @@
  * the server say "not configured".
  */
 
-import { uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
+import {
+  uploadAsync, FileSystemUploadType, getInfoAsync, readAsStringAsync, writeAsStringAsync, deleteAsync, cacheDirectory,
+} from 'expo-file-system/legacy';
 
 export class ApiError extends Error {
   constructor(message, { status = null, code = null } = {}) {
@@ -120,4 +122,42 @@ export async function apiUploadFile(path, fileUri, contentType, { upload = uploa
     throw new ApiError(typeof data?.message === 'string' ? data.message : `Server error (${res.status}).`, { status: res.status, code: data?.code ?? 'HTTP_ERROR' });
   }
   return data;
+}
+
+export const CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * Upload a big file in pieces (`&offset=&total=`), each small enough to
+ * finish on a slow link before a proxy time limit (Cloudflare: 100 s). The
+ * server says how much it has after every piece, so an interrupted upload
+ * (or a retry after an app restart) continues where it stopped. Small files
+ * go in one request. Returns the server's final reply ({ recording }).
+ */
+export async function apiUploadFileChunked(path, fileUri, contentType, {
+  chunkBytes = CHUNK_BYTES,
+  fs = { getInfoAsync, readAsStringAsync, writeAsStringAsync, deleteAsync, cacheDirectory },
+  uploadFile = apiUploadFile,
+} = {}) {
+  const info = await fs.getInfoAsync(fileUri);
+  if (!info?.exists) throw new ApiError('The recording file is no longer on this phone.', { status: 410, code: 'FILE_GONE' });
+  const total = info.size ?? 0;
+  if (total <= chunkBytes) return uploadFile(path, fileUri, contentType);
+
+  const piece = `${fs.cacheDirectory}vishwas-upload-${Date.now()}-${Math.random().toString(36).slice(2)}.part`;
+  try {
+    let offset = 0;
+    for (let guard = 0; guard < Math.ceil(total / chunkBytes) * 3 + 3; guard += 1) {
+      const length = Math.min(chunkBytes, total - offset);
+      const b64 = await fs.readAsStringAsync(fileUri, { encoding: 'base64', position: offset, length });
+      await fs.writeAsStringAsync(piece, b64, { encoding: 'base64' });
+      const res = await uploadFile(`${path}&offset=${offset}&total=${total}`, piece, contentType);
+      if (res?.recording) return res;
+      const received = Number(res?.received);
+      if (!Number.isFinite(received) || received < 0 || received >= total) throw new ApiError('Unexpected upload reply.', { code: 'BAD_REPLY' });
+      offset = received;
+    }
+    throw new ApiError('Upload did not finish.', { code: 'NO_PROGRESS' });
+  } finally {
+    fs.deleteAsync(piece, { idempotent: true }).catch(() => {});
+  }
 }
