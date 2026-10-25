@@ -151,7 +151,13 @@ export async function apiUploadFileChunked(path, fileUri, contentType, {
       const b64 = await fs.readAsStringAsync(fileUri, { encoding: 'base64', position: offset, length });
       await fs.writeAsStringAsync(piece, b64, { encoding: 'base64' });
       const res = await uploadFile(`${path}&offset=${offset}&total=${total}`, piece, contentType);
-      if (res?.recording) return res;
+      if (res?.recording) {
+        // A server without chunk support stores the first piece as the whole file: not done yet.
+        if (Number(res.recording.sizeBytes) !== total) {
+          throw new ApiError('The server kept only part of the file (it needs the latest update). Will retry.', { status: 503, code: 'PARTIAL_UPLOAD' });
+        }
+        return res;
+      }
       const received = Number(res?.received);
       if (!Number.isFinite(received) || received < 0 || received >= total) throw new ApiError('Unexpected upload reply.', { code: 'BAD_REPLY' });
       offset = received;

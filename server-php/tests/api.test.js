@@ -253,6 +253,16 @@ test('chunked upload: in order, resumable, idempotent, same file as one-shot', a
     assert.equal(done.json.recording.sha256, require('node:crypto').createHash('sha256').update(bytes).digest('hex'));
     assert.equal((await t.call('GET', `/recordings/${done.json.recording.id}/file`, { token: a, headers: { Range: 'bytes=0-0' } })).status, 206);
     assert.equal((await put(0, 100_000)).json.duplicate, true);           // whole file already stored
+
+    // A cut-short copy from a server without chunk support is replaced by the full file.
+    const short = await t.call('POST', '/recordings?sosClientId=sess-c&kind=video&part=5', { token: a, raw: bytes.subarray(0, 1000), headers: { 'Content-Type': 'video/quicktime' } });
+    assert.equal(short.json.recording.sizeBytes, 1000);
+    const put5 = (o, e) => t.call('POST', `/recordings?sosClientId=sess-c&kind=video&part=5&offset=${o}&total=${bytes.length}`, { token: a, raw: bytes.subarray(o, e), headers: { 'Content-Type': 'video/quicktime' } });
+    assert.equal((await put5(0, 125_000)).status, 202);
+    const full = await put5(125_000, 250_000);
+    assert.equal(full.status, 201, full.text);
+    assert.equal(full.json.recording.sizeBytes, bytes.length);
+    assert.equal((await t.call('GET', '/recordings?sosClientId=sess-c', { token: a })).json.recordings.filter((r) => r.part === 5).length, 1);
     assert.equal((await t.call('POST', '/recordings?sosClientId=sess-c&kind=video&part=3&offset=0&total=0', { token: a, raw: bytes.subarray(0, 10), headers: { 'Content-Type': 'video/mp4' } })).status, 400);
     assert.equal((await t.call('POST', '/recordings?sosClientId=sess-c&kind=video&part=2&offset=0&total=99999999', { token: a, raw: bytes.subarray(0, 10), headers: { 'Content-Type': 'video/mp4' } })).status, 413);
   } finally { t.close(); }

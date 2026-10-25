@@ -67,6 +67,13 @@ describe('chunked upload', () => {
     expect(Buffer.concat(resumed.got).equals(bytes)).toBe(true);
   });
 
+  it('an old server that keeps only the first piece is not taken as done', async () => {
+    const fs = fakeFs(bytes);
+    const uploadFile = jest.fn(async () => ({ recording: { id: 'r', sizeBytes: 1000 } })); // ignores offset/total
+    await expect(apiUploadFileChunked('/recordings?kind=video&part=1', 'file:///d/v.mov', 'video/quicktime', { chunkBytes: 1000, fs, uploadFile }))
+      .rejects.toMatchObject({ status: 503, code: 'PARTIAL_UPLOAD' }); // retried later, after the server update
+  });
+
   it('small files go in one request; a missing file is a permanent error', async () => {
     const fs = fakeFs(bytes.subarray(0, 10));
     const uploadFile = jest.fn(async () => ({ recording: { id: 'r' } }));

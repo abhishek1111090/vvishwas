@@ -167,13 +167,21 @@ function route_data(App $app, string $method, string $path): ?array
 
         $uploadKey = $user['id'] . '/' . ($ev['id'] ?? 'none') . "/$kind/$part";
         $already = $app->one('SELECT * FROM recordings WHERE upload_key = ?', [$uploadKey]);
-        if ($already) return [200, ['recording' => public_recording($already, $ev['client_id'] ?? null), 'duplicate' => true]];
 
         // Chunked upload (?offset=&total=): big files arrive in pieces small enough for slow
         // links and proxy time limits; an interrupted upload resumes where the server stopped.
         if (isset($_GET['offset']) || isset($_GET['total'])) {
+            if ($already && (int) $already['size_bytes'] === (int) ($_GET['total'] ?? -1)) {
+                return [200, ['recording' => public_recording($already, $ev['client_id'] ?? null), 'duplicate' => true]];
+            }
+            if ($already) {
+                // A cut-short copy (a server before chunk support kept only the first piece): replace it.
+                $app->q('DELETE FROM recordings WHERE id = ?', [$already['id']]);
+                @unlink("$dir/" . $already['storage_key']);
+            }
             return upload_chunk($app, $dir, $user, $ev, $kind, $part, $type, $ext, $uploadKey, $max);
         }
+        if ($already) return [200, ['recording' => public_recording($already, $ev['client_id'] ?? null), 'duplicate' => true]];
 
         $id = uuid4();
         $partial = "$dir/.partial/$id.upload";

@@ -113,6 +113,15 @@ export function createCloudSync({
     if (queue === null) queue = read(STORAGE_KEYS.cloudQueue, []) ?? [];
     if (status === null) status = read(STORAGE_KEYS.cloudUploads, {}) ?? {};
     if (synced === null) synced = new Set(read(STORAGE_KEYS.cloudSynced, []) ?? []);
+    if (!read(STORAGE_KEYS.cloudResync, false)) {
+      // One-time re-check: a server before chunk support kept only the first 1 MB of big
+      // files while reporting success. Send history again; complete files are recognised
+      // by the server after one piece, cut-short ones are replaced. Final failures stay.
+      synced = new Set();
+      status = Object.fromEntries(Object.entries(status).filter(([, v]) => v !== 'uploaded'));
+      write(STORAGE_KEYS.cloudResync, true);
+      persist();
+    }
   };
   const persist = () => {
     write(STORAGE_KEYS.cloudQueue, queue.slice(-MAX_QUEUE));

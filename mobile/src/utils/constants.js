@@ -18,6 +18,7 @@ export const STORAGE_KEYS = {
   cloudUploads: 'vishwas.cloud.uploads.v1',         // local file uri → 'pending' | 'uploaded' | 'failed'
   cloudSynced: 'vishwas.cloud.synced.v1',           // SOS ids already queued for the server
   cloudBackupHash: 'vishwas.cloud.backup-hash.v1',  // hash of the last app-data backup the server confirmed
+  cloudResync: 'vishwas.cloud.resync.v2',           // one-time re-check of files a pre-chunk server cut short
   voiceActivation: 'vishwas.voice.activation.v1',   // { enabled, phrase } for Voice SOS
 };
 
