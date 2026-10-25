@@ -6,6 +6,9 @@
 // It holds the database password and keys — it is never inside httpdocs.
 declare(strict_types=1);
 
+// Shown by /health so you can see which update the server is running (raise on every server change).
+const VISHWAS_API_VERSION = '2026-10-26.chunked-uploads';
+
 require __DIR__ . '/core.php';
 require __DIR__ . '/account.php';
 require __DIR__ . '/data.php';
@@ -43,7 +46,7 @@ function vishwas_run(): void
 
         if ($method === 'GET' && $path === '/health') {
             $t = twilio_cfg($app);
-            send_json(200, ['ok' => true, 'db' => 'ok', 'sms' => $t['sms'], 'whatsapp' => $t['whatsapp']]);
+            send_json(200, ['ok' => true, 'db' => 'ok', 'sms' => $t['sms'], 'whatsapp' => $t['whatsapp'], 'version' => VISHWAS_API_VERSION]);
             return;
         }
         $ip = client_ip($cfg);

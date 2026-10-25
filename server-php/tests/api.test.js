@@ -79,7 +79,7 @@ const ALICE = { fullName: 'Anshu Sharma', email: 'Anshu@Example.com', password: 
 test('health, schema migration and Argon2id password storage', async () => {
   const t = await setup();
   try {
-    assert.deepEqual((await t.call('GET', '/health')).json, { ok: true, db: 'ok', sms: false, whatsapp: false });
+    assert.deepEqual((await t.call('GET', '/health')).json, { ok: true, db: 'ok', sms: false, whatsapp: false, version: '2026-10-26.chunked-uploads' });
     assert.equal((await t.call('POST', '/auth/register', { body: ALICE })).status, 201);
     const db = fs.readFileSync(path.join(t.dir, 'db.sqlite')).toString('latin1');
     assert.match(db, /\$argon2id\$/);
